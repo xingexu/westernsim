@@ -8,7 +8,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-option(WESTERNSIM_BUILD_APP "Build the desktop OpenGL application" ON)
+option(WESTERNSIM_BUILD_APP "Build the Western Sim application" ON)
 
 include(FetchContent)
 find_package(glm 1.0 CONFIG QUIET)
@@ -34,6 +34,22 @@ target_link_libraries(westernsim_world PUBLIC glm::glm)
 westernsim_warnings(westernsim_world)
 
 if(WESTERNSIM_BUILD_APP)
+    add_executable(westernsim src/main.cpp src/renderer.cpp src/avatar.cpp src/hud.cpp)
+    target_link_libraries(westernsim PRIVATE westernsim_world)
+    target_compile_definitions(westernsim PRIVATE GLFW_INCLUDE_NONE)
+    westernsim_warnings(westernsim)
+endif()
+
+if(WESTERNSIM_BUILD_APP AND EMSCRIPTEN)
+    target_compile_options(westernsim_world PRIVATE -fexceptions)
+    target_compile_options(westernsim PRIVATE --use-port=contrib.glfw3 -fexceptions)
+    # The campus generator's 192-by-192 height grid alone exceeds the default stack.
+    target_link_options(westernsim PRIVATE --use-port=contrib.glfw3 -fexceptions
+        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
+        -sFORCE_FILESYSTEM=1 -lidbfs.js
+        "SHELL:-sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency")
+    set_target_properties(westernsim PROPERTIES SUFFIX ".js")
+elseif(WESTERNSIM_BUILD_APP)
     find_package(glfw3 3.3 CONFIG QUIET)
     if(NOT TARGET glfw)
         set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -50,10 +66,7 @@ if(WESTERNSIM_BUILD_APP)
     endif()
     add_library(westernsim_glad STATIC vendor/glad/src/gl.c)
     target_include_directories(westernsim_glad PUBLIC vendor/glad/include)
-    add_executable(westernsim src/main.cpp src/renderer.cpp src/avatar.cpp src/hud.cpp)
-    target_link_libraries(westernsim PRIVATE westernsim_world westernsim_glad glfw)
-    target_compile_definitions(westernsim PRIVATE GLFW_INCLUDE_NONE)
-    westernsim_warnings(westernsim)
+    target_link_libraries(westernsim PRIVATE westernsim_glad glfw)
 endif()
 
 include(CTest)

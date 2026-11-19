@@ -2,8 +2,12 @@
 #include "renderer.hpp"
 #include "campus.hpp"
 
-#include <glad/gl.h>
+#include "graphics.hpp"
 #include <GLFW/glfw3.h>
+#ifdef __EMSCRIPTEN__
+#include <GLFW/emscripten_glfw3.h>
+#include <emscripten.h>
+#endif
 #include <glm/common.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
@@ -19,17 +23,30 @@
 #include <string>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+EM_JS(void, flushBrowserSave, (), { Module.westernSimFlush(); });
+EM_JS(void, showBrowserError, (const char* message), { Module.westernSimFailed(UTF8ToString(message)); });
+EM_JS(void, showBrowserReady, (), { Module.westernSimReady(); });
+#endif
+
 namespace {
 
 using namespace wsim;
 constexpr float pi = 3.14159265f;
 constexpr float editReach = 8.f;
+#ifdef __EMSCRIPTEN__
+constexpr int saveKey = GLFW_KEY_K, loadKey = GLFW_KEY_L;
+constexpr int diagnosticsKey = GLFW_KEY_I, meshKey = GLFW_KEY_O;
+#else
+constexpr int saveKey = GLFW_KEY_F5, loadKey = GLFW_KEY_F9;
+constexpr int diagnosticsKey = GLFW_KEY_F1, meshKey = GLFW_KEY_F2;
 constexpr int benchmarkWarmup = 30, benchmarkFrames = 120;
 
 struct Options {
     bool benchmark = false, screenshotMap = false, screenshotAvatar = false;
     std::filesystem::path screenshot, save = "world.qlw";
 };
+#endif
 
 struct Glfw {
     Glfw() {
@@ -41,6 +58,13 @@ struct Glfw {
 
 struct Window {
     GLFWwindow* handle;
+#ifdef __EMSCRIPTEN__
+    Window(int width, int height) {
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,2);
+        glfwWindowHint(GLFW_ALPHA_BITS,0);
+        glfwWindowHint(GLFW_SCALE_FRAMEBUFFER,GLFW_FALSE);
+        emscripten::glfw3::SetNextWindowCanvasSelector("#canvas");
+#else
     Window(bool offscreen, int width, int height) {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
@@ -48,8 +72,14 @@ struct Window {
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT,GLFW_TRUE);
         glfwWindowHint(GLFW_VISIBLE,offscreen ? GLFW_FALSE : GLFW_TRUE);
         glfwWindowHint(GLFW_SAMPLES,4);
+#endif
         handle = glfwCreateWindow(width,height,"Western Sim",nullptr,nullptr);
+#ifdef __EMSCRIPTEN__
+        if (!handle) throw std::runtime_error("Could not start WebGL 2. Check your browser's graphics settings.");
+        emscripten::glfw3::MakeCanvasResizable(handle,"window");
+#else
         if (!handle) throw std::runtime_error("Could not create an OpenGL 3.3 window");
+#endif
     }
     ~Window() { glfwDestroyWindow(handle); }
 };
@@ -84,6 +114,7 @@ std::optional<Hit> buildTarget(const World& world, const Camera& camera, const P
     return direct && direct->block == hit->block ? hit : std::nullopt;
 }
 
+#ifndef __EMSCRIPTEN__
 void capture(const std::filesystem::path& path, int width, int height) {
     std::vector<unsigned char> pixels(static_cast<std::size_t>(width) * height * 3);
     glPixelStorei(GL_PACK_ALIGNMENT,1);
@@ -96,6 +127,7 @@ void capture(const std::filesystem::path& path, int width, int height) {
     out.close();
     if (!out) throw std::runtime_error("Could not write screenshot");
 }
+#endif
 
 void checkGraphics() {
     const GLenum error = glGetError();
@@ -109,6 +141,7 @@ RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const
     return state.stats;
 }
 
+#ifndef __EMSCRIPTEN__
 void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& world, int width, int height) {
     using Clock = std::chrono::steady_clock;
     GLint samples = 0;
@@ -159,6 +192,7 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
                   << seconds * 1000 / benchmarkFrames << " ms/frame)\n";
     }
 }
+#endif
 
 class Game {
 public:
@@ -169,18 +203,20 @@ public:
         hud_.setCampusMap(world_);
         glfwSetWindowUserPointer(window_,this);
         glfwSetKeyCallback(window_,[](GLFWwindow* window,int key,int,int action,int) {
+#ifdef __EMSCRIPTEN__
+            if (!game(window).captured_) return;
+#endif
             if (action == GLFW_PRESS && key >= 0 && key <= GLFW_KEY_LAST) game(window).keys_[key] = true;
         });
+#ifndef __EMSCRIPTEN__
         glfwSetCursorPosCallback(window_,[](GLFWwindow* window,double x,double y) {
             auto& self = game(window);
-            if (self.captured_ && !self.overlay() && self.cursorKnown_) {
-                self.orbit_.yaw = std::remainder(self.orbit_.yaw + float(x-self.mouseX_) * .0026f,2*pi);
-                self.orbit_.pitch = std::clamp(self.orbit_.pitch - float(y-self.mouseY_) * .0026f,-1.33f,1.14f);
-            }
+            if (self.cursorKnown_) self.look(float(x-self.mouseX_),float(y-self.mouseY_));
             self.mouseX_ = x;
             self.mouseY_ = y;
             self.cursorKnown_ = true;
         });
+#endif
         glfwSetMouseButtonCallback(window_,[](GLFWwindow* window,int button,int action,int) {
             auto& self = game(window);
             if (action != GLFW_PRESS || self.overlay()) return;
@@ -194,48 +230,79 @@ public:
         });
         glfwSetWindowFocusCallback(window_,[](GLFWwindow* window,int focused) {
             auto& self = game(window);
+#ifndef __EMSCRIPTEN__
             self.cursorKnown_ = false;
+#endif
             if (!focused) self.cursor(false);
         });
         state_.editing = true;
+#ifndef __EMSCRIPTEN__
         cursor(true);
+#endif
+        previous_ = glfwGetTime();
     }
 
+    void look(float dx, float dy) {
+        if (!captured_ || overlay()) return;
+        orbit_.yaw = std::remainder(orbit_.yaw + dx * .0026f,2*pi);
+        orbit_.pitch = std::clamp(orbit_.pitch - dy * .0026f,-1.33f,1.14f);
+    }
+
+#ifdef __EMSCRIPTEN__
+    void requestCapture() { cursor(true); }
+    void storageResult(bool persisted) { announce(persisted ? "Campus saved" : "Saved for this tab only"); }
+#else
     void run() {
-        double previous = glfwGetTime();
         while (!glfwWindowShouldClose(window_)) {
-            glfwPollEvents();
-            const double now = glfwGetTime();
-            const double elapsed = std::clamp(now - previous,0.,.1);
-            previous = now;
-            handleKeys();
-            if (!overlay()) simulate(elapsed);
-            int width, height;
-            glfwGetFramebufferSize(window_,&width,&height);
-            if (width == 0 || height == 0) {
-                glfwWaitEventsTimeout(.1);
-                continue;
-            }
-            const auto camera = orbit_.view(world_,player_.feet,float(width)/height);
-            auto hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
-            for (const auto button : pendingEdits_) {
-                if (hit) edit(*hit,button);
-                hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
-            }
-            pendingEdits_.clear();
-            state_.heading = orbit_.yaw * 180.f / pi;
-            state_.position = {player_.feet.x,player_.feet.z};
-            if (now >= toastUntil_) state_.toast = {};
-            fpsTime_ += elapsed;
-            ++fpsFrames_;
-            if (fpsTime_ >= .35) {
-                state_.fps = static_cast<float>(fpsFrames_ / fpsTime_);
-                fpsTime_ = 0;
-                fpsFrames_ = 0;
-            }
-            drawFrame(renderer_,hud_,width,height,camera,player_,hit,float(now),state_);
-            glfwSwapBuffers(window_);
+            if (!frame()) glfwWaitEventsTimeout(.1);
         }
+    }
+#endif
+
+    bool frame() {
+        glfwPollEvents();
+#ifdef __EMSCRIPTEN__
+        const bool locked = glfwGetInputMode(window_,GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+        if (locked != captured_) {
+            captured_ = locked;
+            if (!locked) {
+                state_.guide = state_.map = false;
+                pendingEdits_.clear();
+                jumpQueued_ = false;
+                keys_.fill(false);
+            }
+        }
+#endif
+        const double now = glfwGetTime();
+        const double elapsed = std::clamp(now - previous_,0.,.1);
+        previous_ = now;
+        handleKeys();
+        if (!overlay()) simulate(elapsed);
+        int width, height;
+        glfwGetFramebufferSize(window_,&width,&height);
+        if (width == 0 || height == 0) return false;
+        const auto camera = orbit_.view(world_,player_.feet,float(width)/height);
+        auto hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
+        for (const auto button : pendingEdits_) {
+            if (hit) edit(*hit,button);
+            hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
+        }
+        pendingEdits_.clear();
+        state_.heading = orbit_.yaw * 180.f / pi;
+        state_.position = {player_.feet.x,player_.feet.z};
+        if (now >= toastUntil_) state_.toast = {};
+        fpsTime_ += elapsed;
+        ++fpsFrames_;
+        if (fpsTime_ >= .35) {
+            state_.fps = static_cast<float>(fpsFrames_ / fpsTime_);
+            fpsTime_ = 0;
+            fpsFrames_ = 0;
+        }
+        drawFrame(renderer_,hud_,width,height,camera,player_,hit,float(now),state_);
+#ifndef __EMSCRIPTEN__
+        glfwSwapBuffers(window_);
+#endif
+        return true;
     }
 
 private:
@@ -249,9 +316,13 @@ private:
     HudState state_;
     std::array<bool,GLFW_KEY_LAST+1> keys_{};
     std::vector<int> pendingEdits_;
-    bool captured_ = false, cursorKnown_ = false, jumpQueued_ = false;
-    double mouseX_ = 0, mouseY_ = 0, accumulator_ = 0, toastUntil_ = 0;
-    double fpsTime_ = 0;
+    bool captured_ = false, jumpQueued_ = false;
+#ifndef __EMSCRIPTEN__
+    bool cursorKnown_ = false;
+    double mouseX_ = 0, mouseY_ = 0;
+#endif
+    double accumulator_ = 0, toastUntil_ = 0;
+    double fpsTime_ = 0, previous_ = 0;
     int fpsFrames_ = 0;
     std::string toast_;
 
@@ -262,11 +333,15 @@ private:
     bool overlay() const { return state_.guide || state_.map; }
 
     void cursor(bool capture) {
+#ifndef __EMSCRIPTEN__
         captured_ = capture;
         cursorKnown_ = false;
+#endif
         glfwSetInputMode(window_,GLFW_CURSOR,capture ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+#ifndef __EMSCRIPTEN__
         if (glfwRawMouseMotionSupported())
             glfwSetInputMode(window_,GLFW_RAW_MOUSE_MOTION,capture ? GLFW_TRUE : GLFW_FALSE);
+#endif
     }
 
     void resetPlayer() {
@@ -287,19 +362,25 @@ private:
     void handleKeys() {
         if (keys_[GLFW_KEY_ESCAPE]) {
             state_.guide = state_.map = false;
+#ifndef __EMSCRIPTEN__
             cursor(!captured_);
+#endif
         }
         if (keys_[GLFW_KEY_TAB]) {
             state_.guide = !state_.guide;
             state_.map = false;
+#ifndef __EMSCRIPTEN__
             cursor(!overlay());
+#endif
             pendingEdits_.clear();
             jumpQueued_ = false;
         }
         if (keys_[GLFW_KEY_M]) {
             state_.map = !state_.map;
             state_.guide = false;
+#ifndef __EMSCRIPTEN__
             cursor(!overlay());
+#endif
             pendingEdits_.clear();
             jumpQueued_ = false;
         }
@@ -308,17 +389,25 @@ private:
                 state_.editing = !state_.editing;
                 pendingEdits_.clear();
             }
-            if (keys_[GLFW_KEY_F1]) state_.diagnostics = !state_.diagnostics;
-            if (keys_[GLFW_KEY_F2]) {
+            if (keys_[diagnosticsKey]) state_.diagnostics = !state_.diagnostics;
+            if (keys_[meshKey]) {
                 state_.meshing = state_.meshing == Meshing::greedy ? Meshing::exposed : Meshing::greedy;
                 renderer_.rebuild(world_,state_.meshing);
                 announce(state_.meshing == Meshing::greedy ? "Greedy mesh" : "Exposed faces");
             }
-            if (keys_[GLFW_KEY_F5]) {
+            if (keys_[saveKey]) {
                 std::string error;
+#ifdef __EMSCRIPTEN__
+                if (world_.save(savePath_,error)) {
+                    flushBrowserSave();
+                } else {
+                    announce(error);
+                }
+#else
                 announce(world_.save(savePath_,error) ? "Campus saved" : error);
+#endif
             }
-            if (keys_[GLFW_KEY_F9]) {
+            if (keys_[loadKey]) {
                 std::string error;
                 if (auto saved = World::load(savePath_,error)) {
                     world_ = std::move(*saved);
@@ -371,6 +460,14 @@ private:
     }
 };
 
+#ifdef __EMSCRIPTEN__
+Game* browserGame = nullptr;
+
+void browserError(const char* message) {
+    std::cerr << "Western Sim: " << message << '\n';
+    showBrowserError(message);
+}
+#else
 Options options(int argc, char** argv) {
     Options result;
     for (int i = 1; i < argc; ++i) {
@@ -389,9 +486,49 @@ Options options(int argc, char** argv) {
         throw std::runtime_error("Choose either --benchmark or --screenshot");
     return result;
 }
+#endif
 
 } // namespace
 
+#ifdef __EMSCRIPTEN__
+extern "C" {
+EMSCRIPTEN_KEEPALIVE void westernsim_capture() {
+    if (browserGame) browserGame->requestCapture();
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_look(float dx, float dy) {
+    if (browserGame) browserGame->look(dx,dy);
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_storage_result(int persisted) {
+    if (browserGame) browserGame->storageResult(persisted != 0);
+}
+}
+
+int main() {
+    try {
+        static const Glfw glfw;
+        static Window window(1280,720);
+        glfwMakeContextCurrent(window.handle);
+        static Renderer renderer;
+        static Hud hud;
+        static Game game(window.handle,renderer,hud,"/saves/world.qlw");
+        browserGame = &game;
+        game.frame();
+        checkGraphics();
+        showBrowserReady();
+        emscripten_set_main_loop([] {
+            try {
+                browserGame->frame();
+            } catch (const std::exception& error) {
+                emscripten_cancel_main_loop();
+                browserError(error.what());
+            }
+        },0,false);
+    } catch (const std::exception& error) {
+        browserError(error.what());
+        return 1;
+    }
+}
+#else
 int main(int argc,char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
@@ -452,3 +589,4 @@ int main(int argc,char** argv) {
         return 1;
     }
 }
+#endif

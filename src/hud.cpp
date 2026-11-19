@@ -2,7 +2,7 @@
 #include "campus.hpp"
 #include "font_atlas.hpp"
 
-#include <glad/gl.h>
+#include "graphics.hpp"
 #include <glm/geometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -24,7 +24,7 @@ constexpr Color panel{.10f,.085f,.158f,.89f};
 constexpr Color border{.87f,.82f,.99f,.29f};
 constexpr Color lilac{.84f,.76f,1.f,1.f};
 
-constexpr char vertex[] = R"GLSL(#version 330 core
+constexpr char vertex[] = WESTERNSIM_GLSL R"GLSL(
 layout(location=0) in vec2 screen;
 layout(location=1) in vec2 uv;
 layout(location=2) in vec4 tint;
@@ -37,7 +37,7 @@ void main() {
     rgba = tint;
 }
 )GLSL";
-constexpr char fragment[] = R"GLSL(#version 330 core
+constexpr char fragment[] = WESTERNSIM_GLSL R"GLSL(
 in vec2 atlasUV;
 in vec4 rgba;
 out vec4 color;
@@ -190,7 +190,11 @@ void help(Canvas& canvas, float w, float h) {
     constexpr Shortcut controls[]{
         {"WASD","Walk"}, {"MOUSE","Orbit camera"}, {"SPACE","Jump / swim up"}, {"SHIFT","Sprint"},
         {"LMB","Remove block"}, {"RMB","Place block"}, {"1-8 / WHEEL","Select material"}, {"E","Toggle building"},
+#ifdef __EMSCRIPTEN__
+        {"K","Save campus"}, {"L","Load campus"}, {"I","Diagnostics"}, {"O","Compare mesh modes"},
+#else
         {"F5","Save campus"}, {"F9","Load campus"}, {"F1","Diagnostics"}, {"F2","Compare mesh modes"},
+#endif
         {"R","Return to UC Hill"}, {"ESC","Release / capture cursor"},
         {"M","Campus map"}
     };

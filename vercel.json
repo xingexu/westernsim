@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "true",
+  "buildCommand": "bash tools/build_web.sh",
+  "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/westernsim.wasm",
+      "headers": [{ "key": "Content-Type", "value": "application/wasm" }]
+    }
+  ]
+}
