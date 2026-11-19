@@ -148,7 +148,18 @@ void campus() {
         check(p.x >= landmark.low.x && p.x < landmark.high.x &&
               p.z >= landmark.low.y && p.z < landmark.high.y && solid(world.get(p)),
               "every landmark label attaches to its exterior or plaza");
+        if (landmark.firstSpan != landmark.endSpan)
+            check(landmarkContainsColumn(landmark,{p.x,p.z}), "a building owns its own label column");
     }
+    const auto& unionCentre = landmarks[3];
+    const auto& socialScience = landmarks[6];
+    const glm::ivec3 blockedBy{364,19,344};
+    check(world.get(blockedBy) == Block::socialWall &&
+          blockedBy.x >= unionCentre.low.x && blockedBy.x < unionCentre.high.x &&
+          blockedBy.z >= unionCentre.low.y && blockedBy.z < unionCentre.high.y &&
+          landmarkContainsColumn(socialScience,{blockedBy.x,blockedBy.z}) &&
+          !landmarkContainsColumn(unionCentre,{blockedBy.x,blockedBy.z}),
+          "the Social Science Centre can occlude labels within the UCC bounds");
     const auto plaza = top(landmarks[4].position);
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
     const auto ontario = landmarks[13].position;

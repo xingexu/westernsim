@@ -203,11 +203,8 @@ void landmarkSigns(Canvas& canvas, float w, float h, const World& world,
             std::abs(clip.z) > clip.w) continue;
         const auto viewRay = roof-camera.eye;
         const auto obstruction = raycast(world,camera.eye,viewRay,glm::length(viewRay));
-        if (obstruction) {
-            const auto& p = obstruction->block;
-            if (p.x < landmark.low.x || p.x >= landmark.high.x ||
-                p.z < landmark.low.y || p.z >= landmark.high.y) continue;
-        }
+        if (obstruction &&
+            !landmarkContainsColumn(landmark,{obstruction->block.x,obstruction->block.z})) continue;
         const Point screen = (Point(clip)/clip.w * Point(.5f,-.5f) + .5f) * Point(w,h);
         signs[count++] = {screen,distance,landmark.name};
     }

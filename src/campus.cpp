@@ -127,6 +127,16 @@ glm::vec3 campusClockCenter(const World& world) {
     return {};
 }
 
+bool landmarkContainsColumn(const Landmark& landmark, glm::ivec2 column) {
+    const auto* end = survey::landmarkSpans + landmark.endSpan;
+    const auto* row = std::lower_bound(survey::landmarkSpans+landmark.firstSpan,end,column.y,
+        [](const survey::LandmarkSpan& span, int z) { return span.z < z; });
+    for (; row != end && row->z == column.y; ++row) {
+        if (column.x >= row->firstX && column.x < row->endX) return true;
+    }
+    return false;
+}
+
 World makeCampus() {
     static_assert(worldSize == surveyEdge);
     World world;

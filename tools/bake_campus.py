@@ -329,13 +329,13 @@ def measured_roof(terrain, pixels, depth, dsm, dtm, fallback):
 def buildings(layers, osm, ground, dsm, dtm):
     style = np.zeros((EDGE,EDGE),dtype=np.uint8)
     top = np.zeros_like(style)
+    owner = np.zeros_like(style)
     by_id = {i:(t,p) for i,t,p in osm}
     city_polys = [polygon(f["geometry"]["rings"]) for f in layers[3]]
     assignments = {}
-    landmark_outlines = {}
-    for name,lat,lon,kind,height,ident in LANDMARKS + SECONDARY:
+    mapped_landmarks = {}
+    for index,(name,lat,lon,kind,height,ident) in enumerate(LANDMARKS + SECONDARY,1):
         if not kind:
-            landmark_outlines[name] = make_valid(Polygon(by_id[ident][1]))
             continue
         p = Point(xy(lat,lon))
         if ident and ident in by_id:
@@ -346,9 +346,10 @@ def buildings(layers, osm, ground, dsm, dtm):
             matching = []
         if not matching:
             matching = [min(range(len(city_polys)),key=lambda i: city_polys[i].distance(p))]
-        for index in matching:
-            assignments[index] = (kind,height)
-        landmark_outlines[name] = unary_union([city_polys[index] for index in matching])
+        for footprint in matching:
+            assignments[footprint] = (kind,height,index)
+        if ident:
+            mapped_landmarks[ident] = index
         print(f"{name:28} {cell(lat,lon)} | {len(matching)} surveyed polygons")
     for index,g in enumerate(city_polys):
         if g.area < 16:
@@ -357,7 +358,7 @@ def buildings(layers, osm, ground, dsm, dtm):
         if not np.any(pixels):
             continue
         guess = (TOWN,3 if g.area < 320 else 4) if g.area < 950 else (STONE,6) if g.area < 4000 else (MODERN,8)
-        material, height = assignments.get(index,guess)
+        material, height, landmark = assignments.get(index,(*guess,0))
         terrain = ground[rect]
         base = int(np.median(terrain[pixels]))
         depth = distance_transform_edt(np.pad(pixels,1))[1:-1,1:-1]
@@ -373,9 +374,10 @@ def buildings(layers, osm, ground, dsm, dtm):
         overwrite = pixels & ((top[rect] < roof) | (style[rect] == 0))
         top[rect][overwrite] = roof[overwrite]
         style[rect][overwrite] = material
+        owner[rect][overwrite] = landmark
     # Survey data can predate recently added campus wings. Use mapped outlines for
     # significant buildings where the city layer has no coverage.
-    for _, tags, points in osm:
+    for ident, tags, points in osm:
         if tags.get("building") not in {"university","college","dormitory"} or len(points) < 4 or points[0] != points[-1]:
             continue
         rect,pixels = mask(make_valid(Polygon(points)))
@@ -385,6 +387,7 @@ def buildings(layers, osm, ground, dsm, dtm):
         pixels &= s == 0
         height = int(tags["building:levels"])*2 if tags.get("building:levels","").isdigit() else 7
         s[pixels] = MODERN
+        owner[rect][pixels] = mapped_landmarks.get(ident,0)
         terrain = ground[rect]
         depth = distance_transform_edt(np.pad(pixels,1))[1:-1,1:-1]
         roof = measured_roof(terrain,pixels,depth,dsm[rect],dtm[rect],np.clip(terrain+height,0,58))
@@ -402,15 +405,27 @@ def buildings(layers, osm, ground, dsm, dtm):
         heights = top[rect]
         eaves = int(np.median(heights[style[rect] == kind]))
         np.minimum(heights,eaves,out=heights,where=(style[rect] == kind))
+        owner[z-2:z+3,x-2:x+3] = owner[z,x]
 
     areas = []
-    for name,lat,lon,kind,*_ in LANDMARKS + SECONDARY:
-        rect,pixels = mask(landmark_outlines[name])
+    spans = []
+    for index,(_,lat,lon,kind,_,ident) in enumerate(LANDMARKS + SECONDARY,1):
+        begin = len(spans)
+        if kind:
+            pz,px = np.nonzero(owner == index)
+            rect = np.s_[int(pz.min()):int(pz.max())+1,int(px.min()):int(px.max())+1]
+            pixels = owner[rect] == index
+            for z,row in enumerate(pixels,rect[0].start):
+                edges = np.flatnonzero(np.diff(np.r_[False,row,False]))+rect[1].start
+                spans.extend((z,first,end) for first,end in edges.reshape(-1,2))
+        else:
+            rect,pixels = mask(make_valid(Polygon(by_id[ident][1])))
         zs,xs = rect
         heights = top if kind else ground
         x,z = cell(lat,lon)
         if kind:
-            pixels &= heights[rect] >= np.quantile(heights[rect][pixels],.65)
+            occupied = pixels & (heights[rect] > 0)
+            pixels = occupied & (heights[rect] >= np.quantile(heights[rect][occupied],.65))
         pz,px = np.nonzero(pixels)
         closest = np.argmin((px+xs.start-x)**2+(pz+zs.start-z)**2)
         ax,az = int(px[closest]+xs.start),int(pz[closest]+zs.start)
@@ -418,8 +433,8 @@ def buildings(layers, osm, ground, dsm, dtm):
         if kind in tower_tops:
             ax,az = cell(*(MEMORIAL_TOWER if kind == UC else CLOCK_TOWER))
             ay = tower_tops[kind]
-        areas.append((xs.start,zs.start,xs.stop,zs.stop,ax,ay,az))
-    return style, top, areas, tower_tops
+        areas.append((xs.start,zs.start,xs.stop,zs.stop,ax,ay,az,begin,len(spans)))
+    return style, top, areas, spans, tower_tops
 
 
 def trees(layers, ground, surface, style):
@@ -444,7 +459,7 @@ def trees(layers, ground, surface, style):
     return result
 
 
-def write_header(path, ground, surface, style, top, plants, bridges, areas, tower_tops):
+def write_header(path, ground, surface, style, top, plants, bridges, areas, spans, tower_tops):
     cells = (ground.astype(np.uint32) | (surface.astype(np.uint32)<<6)
              | (top.astype(np.uint32)<<10) | (style.astype(np.uint32)<<16)).ravel()
     cuts = np.r_[0, np.flatnonzero(cells[:-1]!=cells[1:])+1, cells.size]
@@ -466,10 +481,13 @@ def write_header(path, ground, surface, style, top, plants, bridges, areas, towe
     for _,lat,lon,rx,rz in OUTDOOR_LANDMARKS:
         x,z = cell(lat,lon)
         height = max(ground[z,x],bridges[z,x])
-        areas.append((x-rx,z-rz,x+rx+1,z+rz+1,x,int(height),z))
+        areas.append((x-rx,z-rz,x+rx+1,z+rz+1,x,int(height),z,len(spans),len(spans)))
     entries = "\n".join(
-        f'    {{"{name}",{position(lat,lon)},{{{x0},{z0}}},{{{x1},{z1}}},{{{ax},{ay},{az}}}}},'
-        for (name,lat,lon,*_), (x0,z0,x1,z1,ax,ay,az) in zip(LANDMARKS + SECONDARY + OUTDOOR_LANDMARKS,areas))
+        f'    {{"{name}",{position(lat,lon)},{{{x0},{z0}}},{{{x1},{z1}}},{{{ax},{ay},{az}}},{begin},{end}}},'
+        for (name,lat,lon,*_), (x0,z0,x1,z1,ax,ay,az,begin,end)
+        in zip(LANDMARKS + SECONDARY + OUTDOOR_LANDMARKS,areas))
+    rows = ["{"+f"{z},{first},{end}"+"}" for z,first,end in spans]
+    outline_rows = "\n".join("    "+", ".join(rows[i:i+6])+"," for i in range(0,len(rows),6))
     path.with_name("campus_landmarks.hpp").write_text(f"""// Generated by tools/bake_campus.py.
 #pragma once
 #include <glm/vec2.hpp>
@@ -477,7 +495,12 @@ def write_header(path, ground, surface, style, top, plants, bridges, areas, towe
 
 namespace wsim {{
 
-struct Landmark {{ const char* name; glm::ivec2 position, low, high; glm::ivec3 roof; }};
+struct Landmark {{
+    const char* name;
+    glm::ivec2 position, low, high;
+    glm::ivec3 roof;
+    int firstSpan, endSpan;
+}};
 struct MapLabel {{ const char* name; glm::ivec2 position; }};
 inline constexpr Landmark landmarks[] = {{
 {entries}
@@ -501,6 +524,10 @@ inline constexpr int surveyEdge = {EDGE};
 
 namespace wsim::survey {{
 
+struct LandmarkSpan {{ int z, firstX, endX; }};
+inline constexpr LandmarkSpan landmarkSpans[] = {{
+{outline_rows}
+}};
 inline constexpr std::uint32_t columns[] = {{
 {array(data)}
 }};
@@ -533,7 +560,7 @@ def main():
     ground = elevation(layers)
     print("Rasterizing streets, paths, and the Thames")
     surface, bridges = surfaces(layers,osm,ground)
-    style,top,areas,tower_tops = buildings(layers,osm,ground,dsm.result(),dtm.result())
+    style,top,areas,spans,tower_tops = buildings(layers,osm,ground,dsm.result(),dtm.result())
     plants = trees(layers,ground,surface,style)
     if args.preview:
         ground_color = np.array([[129,155,91],[64,113,143],[157,127,84],[108,108,115],
@@ -552,7 +579,7 @@ def main():
         x,z = cell(lat,lon)
         print(name,x,z,"terrain",ground[z,x],"surface",surface[z,x],"building",style[z,x],"top",top[z,x])
     write_header(Path(__file__).resolve().parents[1]/"src/campus_survey.hpp",
-                 ground,surface,style,top,plants,bridges,areas,tower_tops)
+                 ground,surface,style,top,plants,bridges,areas,spans,tower_tops)
 
 
 if __name__ == "__main__":
