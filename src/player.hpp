@@ -2,7 +2,7 @@
 
 #include "world.hpp"
 
-namespace ql {
+namespace wsim {
 
 constexpr double physicsStep = 1.0 / 120.0;
 constexpr float playerRadius = .30f;
@@ -19,4 +19,4 @@ struct Player {
     bool overlaps(glm::ivec3 block) const;
 };
 
-} // namespace ql
+} // namespace wsim

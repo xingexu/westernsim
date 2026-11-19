@@ -5,10 +5,12 @@
 #include <cmath>
 #include <cstdint>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 constexpr int waterLevel = 4;
+constexpr glm::ivec2 middlesexTower{119,85};
+constexpr int middlesexTowerHeight = 22;
 
 float distanceTo(glm::vec2 p, glm::vec2 a, glm::vec2 b) {
     const auto d = b - a;
@@ -41,8 +43,8 @@ int terrainHeight(glm::vec2 p, float riverDistance) {
         const float mix = std::clamp(1.f - (glm::length(d) - 1.f) / 6.f,0.f,1.f);
         height += (base(landmark) - height) * mix;
     }
-    if (distanceTo(p,bridge.start,bridge.end) < 8.f && riverDistance >= riverWidth * .60f)
-        height = 7.f;
+    if (distanceTo(p,bridge.start,bridge.end) < 6.5f && riverDistance >= riverWidth * .60f)
+        height = 8.f;
     const float bank = std::clamp((riverDistance - riverWidth*.42f) / 5.f,0.f,1.f);
     return static_cast<int>(std::round(2.f + (height - 2.f) * bank));
 }
@@ -63,10 +65,11 @@ void wing(World& world, const Landmark& l) {
     const int y0 = base(l);
     const int x0 = l.low.x, x1 = l.high.x, z0 = l.low.y, z1 = l.high.y;
     const int entry = (x0 + x1) / 2;
-    const bool stone = gothic(l.type), library = l.type == Building::library;
+    const bool stone = gothic(l.type);
     const bool residential = l.type == Building::residence;
-    const auto walls = stone ? Block::sandstone : residential ? Block::brick : Block::concrete;
-    const auto trim = stone || library ? Block::limestone : Block::sandstone;
+    const bool brick = residential || l.type == Building::gallery;
+    const auto walls = stone ? Block::sandstone : brick ? Block::brick : Block::concrete;
+    const auto trim = stone || brick ? Block::limestone : Block::sandstone;
     for (int y = 1; y <= l.height; ++y) {
         for (int z = z0; z <= z1; ++z) {
             for (int x = x0; x <= x1; ++x) {
@@ -78,21 +81,17 @@ void wing(World& world, const Landmark& l) {
                 const bool door = z == z1 && std::abs(x-entry) <= 1 && y <= 3;
                 if (door) continue;
                 const bool floorBand = (y-1) % 4 == 0;
-                const bool window = !floorBand && y > 2 && y < l.height &&
-                    !corner && (stone ? across%5 == 2 || across%5 == 3 :
-                                library ? across%3 == 1 : across%4 >= 1);
+                const bool window = !floorBand && y > 2 && y < l.height && !corner &&
+                                    (stone ? across%5 == 2 || across%5 == 3 : across%4 >= 1);
                 auto block = walls;
                 if (corner || y == l.height || (floorBand && !residential)) block = trim;
-                if (window) {
-                    const bool conron = l.type == Building::university && z == z1 && x < 67;
-                    block = conron ? Block::stainedGlass : Block::glass;
-                }
+                if (window) block = Block::glass;
                 world.set({x,y0+y,z},block);
             }
         }
     }
     const int roof = y0 + l.height + 1;
-    if (stone || residential) {
+    if (stone || brick) {
         for (int z = z0 - 1; z <= z1 + 1; ++z) {
             const int rise = std::min(z-(z0-1),(z1+1)-z) / 2;
             box(world,x0,roof,z,x0,roof+rise-1,z,walls);
@@ -102,9 +101,6 @@ void wing(World& world, const Landmark& l) {
     } else {
         box(world,x0-1,roof,z0-1,x1+1,roof,z1+1,trim);
         box(world,x0+2,roof+1,z0+2,x1-2,roof+1,z1-2,Block::slate);
-        if (library)
-            for (int x = x0+1; x < x1; x += 3)
-                box(world,x,y0+3,z1+1,x,roof-1,z1+1,Block::limestone);
     }
     box(world,entry-2,y0,z1+1,entry+2,y0,z1+2,Block::limestone);
 }
@@ -123,21 +119,27 @@ void tower(World& world, int cx, int cz, int y0, int height, bool clock) {
                                                        (!clock && y >= height-7 && y <= height-3)))
                     block = Block::glass;
                 const int dialY = y - (height-5);
-                if (clock && std::abs(center) <= 2 && std::abs(dialY) <= 2 &&
-                    std::abs(center) + std::abs(dialY) < 4) {
-                    const bool hands = (center == 0 && dialY >= 0) || (dialY == 0 && center == 1);
-                    block = hands ? Block::slate : Block::limestone;
-                }
+                if (clock && std::abs(center) <= 1 && std::abs(dialY) <= 1) block = Block::clock;
                 if (z == 4 && std::abs(x) <= 1 && y <= 4) block = Block::air;
                 world.set({cx+x,y0+y,cz+z},block);
+                if (!edge && std::abs(center) <= 1 && y == height-2 && !clock)
+                    world.set({cx+x,y0+y,cz+z},Block::lancet);
             }
         }
     }
     box(world,cx-5,y0+height,cz-5,cx+5,y0+height,cz+5,Block::limestone);
     if (clock) {
-        for (int i = 0; i <= 4; ++i)
-            box(world,cx-4+i,y0+height+1+i*2,cz-4+i,cx+4-i,y0+height+2+i*2,cz+4-i,Block::copper);
-        world.set({cx,y0+height+11,cz},Block::limestone);
+        const int top = y0+height;
+        for (int x : {-4,4}) {
+            for (int z : {-4,4}) {
+                box(world,cx+x-1,top+1,cz+z-1,cx+x+1,top+2,cz+z+1,Block::limestone);
+                box(world,cx+x,top+3,cz+z,cx+x,top+4,cz+z,Block::sandstone);
+            }
+        }
+        for (int i = 0; i <= 3; ++i)
+            box(world,cx-3+i,top+1+i*3,cz-3+i,cx+3-i,top+3+i*3,cz+3-i,Block::copper);
+        box(world,cx,top+13,cz,cx,top+15,cz,Block::iron);
+        world.set({cx,top+16,cz},Block::lantern);
     } else {
         for (int x = -5; x <= 5; ++x) {
             for (int z = -5; z <= 5; ++z) {
@@ -151,7 +153,94 @@ void tower(World& world, int cx, int cz, int y0, int height, bool clock) {
         }
         for (int x : {-3,3})
             box(world,cx+x,y0+7,cz+5,cx+x,y0+11,cz+5,Block::stainedGlass);
+        box(world,cx,y0+height+1,cz,cx,y0+height+7,cz,Block::iron);
+        for (int x = 1; x <= 5; ++x)
+            box(world,cx+x,y0+height+5,cz,cx+x,y0+height+6,cz,
+                x == 1 || x == 5 || x == 3 ? Block::flagRed : Block::flagWhite);
     }
+}
+
+void universityCollege(World& world, const Landmark& l) {
+    wing(world,l);
+    const int y = base(l), front = l.high.y;
+    // Conron Hall's south elevation has a row of tall, pointed stained-glass bays.
+    for (int x = l.low.x + 2; x <= 69; x += 4) {
+        for (int pane = x; pane <= x+2; ++pane) {
+            box(world,pane,y+5,front,pane,y+11,front,Block::stainedGlass);
+            box(world,pane,y+4,front+1,pane,y+4,front+1,Block::limestone);
+        }
+        world.set({x+1,y+12,front},Block::lancet);
+        box(world,x-1,y+2,front+1,x-1,y+13,front+1,Block::sandstone);
+        world.set({x-1,y+14,front+1},Block::limestone);
+    }
+    for (const int end : {l.low.x, l.high.x-3}) {
+        box(world,end,y+1,front+1,end+3,y+13,front+2,Block::sandstone);
+        box(world,end,y+13,front,end+3,y+13,front+3,Block::limestone);
+        for (int x : {end,end+3}) world.set({x,y+14,front+3},Block::limestone);
+        for (int storey : {3,7,10})
+            box(world,end+1,y+storey,front+2,end+2,y+storey+1,front+2,Block::glass);
+    }
+    tower(world,76,88,y,25,false);
+    // Extend the entry stairs and keep the doorway itself traversable.
+    for (int x : {74,78}) box(world,x,y+1,93,x,y+4,93,Block::limestone);
+    box(world,74,y+5,93,78,y+5,93,Block::limestone);
+    world.set({76,y+6,93},Block::stainedGlass);
+    box(world,72,y,92,80,y,94,Block::limestone);
+    box(world,73,y-1,95,79,y-1,95,Block::limestone);
+    box(world,74,y-2,96,78,y-2,96,Block::limestone);
+}
+
+void weldon(World& world, const Landmark& landmark) {
+    const int floor = base(landmark);
+    const int x0 = landmark.low.x, x1 = landmark.high.x;
+    const int z0 = landmark.low.y, z1 = landmark.high.y;
+    for (int storey = 0; storey < 5; ++storey) {
+        const int setback = storey / 2;
+        const int y = floor+1+storey*3;
+        for (int z = z0+setback; z <= z1-setback; ++z) {
+            for (int x = x0+setback; x <= x1-setback; ++x) {
+                if (x != x0+setback && x != x1-setback && z != z0+setback && z != z1-setback)
+                    continue;
+                box(world,x,y,z,x,y+2,z,Block::concrete);
+                world.set({x,y+1,z},Block::glass);
+                const int outX = (x == x0+setback ? -1 : (x == x1-setback ? 1 : 0));
+                const int outZ = (z == z0+setback ? -1 : (z == z1-setback ? 1 : 0));
+                world.set({x+outX,y+2,z+outZ},Block::limestone);
+                if (storey == 4) world.set({x,y+3,z},Block::concrete);
+            }
+        }
+    }
+    box(world,x0+2,floor+16,z0+2,x1-2,floor+16,z1-2,Block::slate);
+    for (int x = x0+4; x <= x1-4; x += 4) {
+        box(world,x,floor+17,z0+4,x+1,floor+17,z1-4,Block::glass);
+        box(world,x,floor+18,z0+4,x,floor+18,z1-4,Block::concrete);
+    }
+    for (const auto x : {x0,x1-1})
+        for (const auto z : {z0,z1-1})
+            box(world,x,floor+1,z,x+1,floor+17,z+1,Block::concrete);
+    const int entry = (x0+x1)/2;
+    box(world,entry-2,floor+1,z0,entry+2,floor+3,z0,Block::air);
+    box(world,entry-3,floor+4,z0-2,entry+3,floor+4,z0,Block::concrete);
+}
+
+void communityCentre(World& world, const Landmark& landmark) {
+    wing(world,landmark);
+    const int y = base(landmark), front = landmark.high.y;
+    for (int x = 34; x <= 46; ++x) {
+        const auto curtain = x%3 == 0 ? Block::iron : Block::glass;
+        box(world,x,y+1,front,x,y+9,front,curtain);
+    }
+    box(world,39,y+1,front,41,y+3,front,Block::air);
+    box(world,36,y+4,front+1,44,y+4,front+3,Block::slate);
+    const int plaza = base(landmarks.back());
+    // Concrete Beach pavilion, retaining-wall seating and planting beds.
+    for (int x : {31,37}) for (int z : {71,75})
+        box(world,x,plaza+1,z,x,plaza+3,z,Block::iron);
+    box(world,30,plaza+4,70,38,plaza+4,76,Block::slate);
+    box(world,31,plaza+5,71,37,plaza+5,75,Block::copper);
+    box(world,42,plaza+1,75,49,plaza+1,75,Block::limestone);
+    box(world,43,plaza+2,75,48,plaza+2,75,Block::planks);
+    box(world,43,plaza+1,72,47,plaza+1,72,Block::flowers);
 }
 
 void buildBridge(World& world) {
@@ -164,10 +253,14 @@ void buildBridge(World& world) {
             const float t = glm::dot(p,direction), offset = std::abs(glm::dot(p,side));
             if (t < -2.f || t > length + 1.f || offset > bridge.width*.5f) continue;
             const bool rim = offset > bridge.width*.5f-1.0f;
-            world.set({x,7,z},rim ? Block::limestone : Block::pavement);
-            if (rim && t > 2 && t < length-2) world.set({x,8,z},Block::sandstone);
-            if (std::abs(t-13.f) < 1 || std::abs(t-27.f) < 1)
-                box(world,x,2,z,x,6,z,Block::sandstone);
+            world.set({x,8,z},rim ? Block::limestone : Block::pavement);
+            if (rim && t > 2 && t < length-2) world.set({x,9,z},Block::iron);
+            if (t > 10 && t < 31) {
+                const float fromPier = std::min(std::abs(t-11.f),std::abs(t-29.f));
+                const int rise = std::min(3,static_cast<int>(fromPier * .6f));
+                box(world,x,4+rise,z,x,7,z,Block::concrete);
+                if (fromPier < 1.4f) box(world,x,2,z,x,4,z,Block::brick);
+            }
         }
     }
 }
@@ -193,6 +286,10 @@ void tree(World& world, int x, int z, int y, int height, Block leaf, bool birch)
 
 } // namespace
 
+glm::vec3 campusClockCenter() {
+    return {middlesexTower.x+.5f,base(landmarks[1])+middlesexTowerHeight-4.5f,middlesexTower.y+.5f};
+}
+
 World makeCampus() {
     World world;
     std::array<int,worldSize*worldSize> heights{};
@@ -208,7 +305,9 @@ World makeCampus() {
                     if (distanceTo(p,path.start,path.end) <= path.width/2) top = path.surface;
                 for (const auto& path : hillPaths)
                     if (distanceTo(p,path.start,path.end) <= path.width/2) top = path.surface;
-                if (x >= 46 && x <= 53 && z >= 58 && z <= 75) top = Block::concrete;
+                const auto& plaza = landmarks.back();
+                if (x >= plaza.low.x && x <= plaza.high.x && z >= plaza.low.y && z <= plaza.high.y)
+                    top = Block::concrete;
                 if (x >= 69 && x <= 85 && z >= 89 && z <= 96) top = Block::limestone;
             }
             for (int y = 0; y <= std::max(height,waterLevel); ++y) {
@@ -219,9 +318,16 @@ World makeCampus() {
         }
     }
 
-    for (const auto& landmark : landmarks) wing(world,landmark);
-    tower(world,76,88,base(landmarks[0]),25,false);
-    tower(world,119,85,base(landmarks[1]),19,true);
+    for (const auto& landmark : landmarks) {
+        switch (landmark.type) {
+            case Building::university: universityCollege(world,landmark); break;
+            case Building::library: weldon(world,landmark); break;
+            case Building::community: communityCentre(world,landmark); break;
+            case Building::plaza: break;
+            default: wing(world,landmark); break;
+        }
+    }
+    tower(world,middlesexTower.x,middlesexTower.y,base(landmarks[1]),middlesexTowerHeight,true);
     buildBridge(world);
 
     for (int z = 5; z < worldSize - 4; z += 6) {
@@ -248,10 +354,15 @@ World makeCampus() {
     }
     for (const glm::ivec2 p : {glm::ivec2(100,113), {85,109}, {72,98}, {80,98}, {125,112},{141,111}}) {
         const int y = heights[p.y*worldSize+p.x];
-        box(world,p.x,y+1,p.y,p.x,y+2,p.y,Block::cedar);
+        box(world,p.x,y+1,p.y,p.x,y+2,p.y,Block::iron);
         world.set({p.x,y+3,p.y},Block::lantern);
+    }
+    for (const glm::ivec2 p : {glm::ivec2(72,95), {80,95}, {85,104}, {70,100}, {96,104}}) {
+        const int y = heights[p.y*worldSize+p.x];
+        box(world,p.x,y,p.y,p.x+2,y,p.y+1,Block::limestone);
+        box(world,p.x,y+1,p.y,p.x+2,y+1,p.y,Block::flowers);
     }
     return world;
 }
 
-} // namespace ql
+} // namespace wsim

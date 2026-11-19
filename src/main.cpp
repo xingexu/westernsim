@@ -1,6 +1,7 @@
 #include "hud.hpp"
 #include "renderer.hpp"
 #include "campus.hpp"
+#include "pixel_frame.hpp"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -21,7 +22,7 @@
 
 namespace {
 
-using namespace ql;
+using namespace wsim;
 constexpr float pi = 3.14159265f;
 constexpr float editReach = 8.f;
 constexpr int benchmarkWarmup = 30, benchmarkFrames = 120;
@@ -48,7 +49,7 @@ struct Window {
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT,GLFW_TRUE);
         glfwWindowHint(GLFW_VISIBLE,offscreen ? GLFW_FALSE : GLFW_TRUE);
         glfwWindowHint(GLFW_SAMPLES,0);
-        handle = glfwCreateWindow(width,height,"Quarrylight",nullptr,nullptr);
+        handle = glfwCreateWindow(width,height,"Western Sim",nullptr,nullptr);
         if (!handle) throw std::runtime_error("Could not create an OpenGL 3.3 window");
     }
     ~Window() { glfwDestroyWindow(handle); }
@@ -102,12 +103,23 @@ void checkGraphics() {
     if (error != GL_NO_ERROR) throw std::runtime_error("OpenGL error " + std::to_string(error));
 }
 
+RenderStats drawFrame(Renderer& renderer, Hud& hud, PixelFrame& frame, const Camera& camera,
+                      const Player& player, const std::optional<Hit>& hit, float time, HudState& state) {
+    state.stats = renderer.draw(camera,player,hit,frame.sceneWidth(),frame.sceneHeight(),time,frame.sceneTarget());
+    frame.startHud();
+    hud.draw(frame.hudWidth(),frame.hudHeight(),state);
+    return state.stats;
+}
+
 void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& world, int width, int height) {
     using Clock = std::chrono::steady_clock;
+    PixelFrame pixels;
+    pixels.resize(width,height);
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << '\n'
               << "Driver: " << glGetString(GL_VERSION) << '\n'
               << "World: " << world.edge() << " x " << worldHeight << " x " << world.edge()
-              << " | " << width << " x " << height << " | " << benchmarkWarmup << " warm-up + "
+              << " | " << width << " x " << height << " output, " << pixels.sceneWidth()
+              << " x " << pixels.sceneHeight() << " scene | " << benchmarkWarmup << " warm-up + "
               << benchmarkFrames << " measured frames per mode | VSync off\n";
     Player player;
     player.feet = world.spawn();
@@ -126,11 +138,10 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
             Orbit orbit;
             orbit.yaw += .48f * std::sin(t * 2.f * pi);
             const auto camera = orbit.view(world,player.feet,float(width)/height);
-            stats = renderer.draw(camera,player,{},width,height,t * 3.f);
             HudState state;
             state.heading = orbit.yaw * 180.f / pi;
             state.editing = true;
-            hud.draw(width,height,state);
+            stats = drawFrame(renderer,hud,pixels,camera,player,{},t * 3.f,state);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (frame >= 0) {
@@ -157,6 +168,7 @@ public:
         : window_(window), renderer_(renderer), hud_(hud), savePath_(path) {
         resetPlayer();
         renderer_.rebuild(world_,state_.meshing);
+        hud_.setCampusMap(world_);
         glfwSetWindowUserPointer(window_,this);
         glfwSetKeyCallback(window_,[](GLFWwindow* window,int key,int,int action,int) {
             if (action == GLFW_PRESS && key >= 0 && key <= GLFW_KEY_LAST) game(window).keys_[key] = true;
@@ -223,8 +235,8 @@ public:
                 fpsTime_ = 0;
                 fpsFrames_ = 0;
             }
-            state_.stats = renderer_.draw(camera,player_,hit,width,height,float(now));
-            hud_.draw(width,height,state_);
+            pixels_.resize(width,height);
+            drawFrame(renderer_,hud_,pixels_,camera,player_,hit,float(now),state_);
             glfwSwapBuffers(window_);
         }
     }
@@ -233,6 +245,7 @@ private:
     GLFWwindow* window_;
     Renderer& renderer_;
     Hud& hud_;
+    PixelFrame pixels_;
     std::filesystem::path savePath_;
     World world_ = makeCampus();
     Player player_;
@@ -384,7 +397,7 @@ Options options(int argc, char** argv) {
 int main(int argc,char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
-            std::cout << "Quarrylight [--save FILE] [--benchmark | --screenshot FILE.ppm | --screenshot-map FILE.ppm]\n";
+            std::cout << "Western Sim [--save FILE] [--benchmark | --screenshot FILE.ppm | --screenshot-map FILE.ppm]\n";
             return 0;
         }
         const auto args = options(argc,argv);
@@ -415,19 +428,21 @@ int main(int argc,char** argv) {
                 Orbit orbit;
                 player.heading = -orbit.yaw;
                 const auto camera = orbit.view(world,player.feet,float(width)/height);
-                renderer.draw(camera,player,{},width,height,1.2f);
+                PixelFrame pixels;
+                pixels.resize(width,height);
                 HudState state;
                 state.editing = true;
                 state.map = args.screenshotMap;
                 state.position = {player.feet.x,player.feet.z};
                 state.heading = orbit.yaw * 180.f / pi;
-                hud.draw(width,height,state);
+                if (state.map) hud.setCampusMap(world);
+                drawFrame(renderer,hud,pixels,camera,player,{},1.2f,state);
                 capture(args.screenshot,width,height);
                 checkGraphics();
             }
         }
     } catch (const std::exception& error) {
-        std::cerr << "Quarrylight: " << error.what() << '\n';
+        std::cerr << "Western Sim: " << error.what() << '\n';
         return 1;
     }
 }

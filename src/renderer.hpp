@@ -6,7 +6,7 @@
 #include <glm/mat4x4.hpp>
 #include <memory>
 
-namespace ql {
+namespace wsim {
 
 struct Camera {
     glm::vec3 eye, forward;
@@ -27,7 +27,7 @@ public:
     void rebuild(const World& world, Meshing mode);
     void update(const World& world, glm::ivec3 edited);
     RenderStats draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                     int width, int height, float time);
+                     int width, int height, float time, unsigned target);
 
 private:
     struct Data;
@@ -37,4 +37,4 @@ private:
 unsigned shaderProgram(const char* vertex, const char* fragment);
 glm::vec3 blockColor(Block block);
 
-} // namespace ql
+} // namespace wsim

@@ -11,7 +11,7 @@
 
 namespace {
 
-using namespace ql;
+using namespace wsim;
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -81,7 +81,7 @@ void movementAndEditing() {
 }
 
 void persistence() {
-    const auto path = std::filesystem::current_path() / "quarrylight-test.qlw";
+    const auto path = std::filesystem::current_path() / "westernsim-test.qlw";
     World world(32);
     std::string error;
     world.set({31,63,31}, Block::brick);
@@ -102,11 +102,14 @@ void campus() {
     check(world.edge() == 192 && world.chunks().size() == 576, "fixed benchmark campus dimensions");
     check(spawn.x == campusSpawn.x + .5f && spawn.z == campusSpawn.y + .5f, "start at UC Hill");
     check(world.get({153,4,115}) == Block::water &&
-          world.get({153,7,115}) == Block::pavement &&
-          world.get({153,8,115}) == Block::air, "University Bridge has a walkable deck over the Thames");
+          world.get({153,8,115}) == Block::pavement &&
+          world.get({153,9,115}) == Block::air, "University Bridge has a walkable deck over the Thames");
     const auto tower = raycast(world,{76.5f,63.f,88.5f},{0,-1,0},63.f);
     const auto spire = raycast(world,{119.5f,63.f,85.5f},{0,-1,0},63.f);
     check(tower && tower->block.y > 37 && spire && spire->block.y > 37, "both tower silhouettes");
+    check(world.get({60,22,89}) == Block::stainedGlass, "Conron Hall windows");
+    const auto plaza = raycast(world,{49.5f,63.f,71.5f},{0,-1,0},63.f);
+    check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
 }
 
 } // namespace

@@ -10,7 +10,7 @@
 #include <random>
 #include <stdexcept>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 constexpr std::array<char, 8> saveHeader{'Q','L','W','O','R','L','D',1};
@@ -160,4 +160,4 @@ std::optional<Hit> raycast(const World& world, glm::vec3 start, glm::vec3 direct
     return std::nullopt;
 }
 
-} // namespace ql
+} // namespace wsim

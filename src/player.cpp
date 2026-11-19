@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 const glm::vec3 low{-playerRadius, 0.f, -playerRadius};
@@ -76,4 +76,4 @@ bool Player::overlaps(glm::ivec3 block) const {
     return true;
 }
 
-} // namespace ql
+} // namespace wsim

@@ -12,7 +12,7 @@
 #include <cstdio>
 #include <vector>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 using Color = glm::vec4;
@@ -42,9 +42,14 @@ in vec2 atlasUV;
 in vec4 rgba;
 out vec4 color;
 uniform sampler2D atlas;
+uniform sampler2D campus;
 void main() {
-    float alpha = atlasUV.x < 0. ? 1. : texture(atlas, atlasUV).r;
-    color = vec4(rgba.rgb, rgba.a * alpha);
+    if (atlasUV.x >= 2.) {
+        color = texture(campus, atlasUV - vec2(2,0));
+    } else {
+        float alpha = atlasUV.x < 0. ? 1. : texture(atlas, atlasUV).r;
+        color = vec4(rgba.rgb, rgba.a * alpha);
+    }
 }
 )GLSL";
 
@@ -63,38 +68,18 @@ public:
         quad({x,y},{x+w,y},{x+w,y+h},{x,y+h}, color);
     }
 
-    void circle(Point p, float radius, Color color) {
-        constexpr float turn = 6.2831853f;
-        for (int i = 0; i < 18; ++i) {
-            const float a = turn * i / 18, b = turn * (i+1) / 18;
-            triangle(p,p + radius*Point(std::cos(a),std::sin(a)),
-                     p + radius*Point(std::cos(b),std::sin(b)),color);
-        }
-    }
-
-    void stroke(Point a, Point b, float thickness, Color color) {
-        const auto d = glm::normalize(b-a);
-        const Point n = Point(-d.y,d.x) * (thickness/2);
-        quad(a+n,b+n,b-n,a-n,color);
-        circle(a,thickness/2,color);
-        circle(b,thickness/2,color);
+    void mapImage(Point p, float edge) {
+        // The atlas UV range [2,3] selects the campus texture in the fragment shader.
+        quad(p,p+Point(edge,0),p+edge,p+Point(0,edge),ivory,{2,0},{3,1});
     }
 
     void rounded(float x, float y, float w, float h, float r, Color color) {
-        rect(x+r,y,w-2*r,h,color);
-        rect(x,y+r,r,h-2*r,color);
-        rect(x+w-r,y+r,r,h-2*r,color);
-        constexpr float halfPi = 1.570796327f;
-        const Point centers[]{{x+w-r,y+h-r},{x+r,y+h-r},{x+r,y+r},{x+w-r,y+r}};
-        for (int k = 0; k < 4; ++k) {
-            const auto c = centers[k];
-            for (int j = 0; j < 5; ++j) {
-                const float a = (k + j / 5.f) * halfPi;
-                const float b = (k + (j+1) / 5.f) * halfPi;
-                triangle(c, c + r * Point(std::cos(a), std::sin(a)),
-                         c + r * Point(std::cos(b), std::sin(b)), color);
-            }
-        }
+        const float step = std::floor(r/2.f);
+        rect(x,y+r,w,h-2*r,color);
+        rect(x+step,y+step,w-step*2,r-step,color);
+        rect(x+step,y+h-r,w-step*2,r-step,color);
+        rect(x+r,y,w-r*2,step,color);
+        rect(x+r,y+h-step,w-r*2,step,color);
     }
 
     void card(float x, float y, float w, float h, float r, Color fill = panel, Color edge = border) {
@@ -109,16 +94,16 @@ public:
     static float width(std::string_view text, float size, bool bold) {
         float sum = 0;
         for (const auto c : text) sum += font::advances[glyph(c,bold)];
-        return sum * size / (24.f * 32.f);
+        return sum * size / (font::size * 32.f);
     }
 
     void text(float x, float baseline, std::string_view text, float size, Color color, bool bold = false) {
-        const float scale = size / 24.f;
+        const float scale = size / font::size;
         const float quadSize = font::cell * scale;
         for (const auto c : text) {
             const int slot = glyph(c, bold);
             if (c != ' ') {
-                const Point p{x - 2 * scale, baseline - 24 * scale};
+                const Point p{x - 2 * scale, baseline - font::size * scale};
                 const Point low{float(slot % font::columns * font::cell) / font::width,
                                 float(slot / font::columns * font::cell) / font::height};
                 const Point high = low + Point(float(font::cell)/font::width, float(font::cell)/font::height);
@@ -158,7 +143,7 @@ void branding(Canvas& canvas, float w) {
     canvas.card(28,25,197,62,12);
     canvas.rounded(39,36,39,39,8,{.24f,.19f,.35f,1});
     canvas.cube(58.5f,53.5f,.82f,{.96f,.72f,.35f});
-    canvas.text(88,54,"Quarrylight",20,ivory,true);
+    canvas.text(88,54,"Western Sim",20,ivory,true);
     canvas.text(89,72,"WESTERN UNIVERSITY",9.5f,lilac,true);
 
     canvas.card(w-269,25,241,39,9);
@@ -190,7 +175,7 @@ void help(Canvas& canvas, float w, float h) {
     canvas.rect(0,0,w,h,{.02f,.04f,.048f,.62f});
     const float x = w/2 - 226, y = h/2 - 194;
     canvas.card(x,y,452,388,16,{.105f,.086f,.16f,.98f});
-    canvas.text(x+28,y+35,"QUARRYLIGHT",10.5f,accent,true);
+    canvas.text(x+28,y+35,"WESTERN SIM",12,accent,true);
     canvas.text(x+28,y+73,"Field guide",30,ivory,true);
     canvas.key(x+379,y+25,44,"TAB");
     canvas.text(x+28,y+100,"Walk around Western, then build with the material bar.",13,muted);
@@ -212,7 +197,7 @@ void help(Canvas& canvas, float w, float h) {
 }
 
 void campusMap(Canvas& canvas, float w, float h, const HudState& state) {
-    constexpr float panelWidth = 886, panelHeight = 676, mapWidth = 534;
+    constexpr float panelWidth = 924, panelHeight = 676, mapWidth = 534;
     const float x = (w-panelWidth)/2, y = (h-panelHeight)/2;
     const float mapX = x+26, mapY = y+102;
     const auto point = [&](glm::vec2 p) {
@@ -224,74 +209,45 @@ void campusMap(Canvas& canvas, float w, float h, const HudState& state) {
     canvas.text(x+25,y+75,"Campus map",34,ivory,true);
     canvas.key(x+panelWidth-66,y+30,40,"M");
 
-    canvas.rounded(mapX-2,mapY-2,mapWidth+4,mapWidth+4,9,{.47f,.51f,.44f,1});
-    canvas.rect(mapX,mapY,mapWidth,mapWidth,{.87f,.88f,.77f,1});
-    for (int i = 24; i < worldSize; i += 24) {
-        const auto p = point({i,i});
-        const Color grid{.46f,.55f,.44f,.19f};
-        canvas.rect(p.x,mapY,1,mapWidth,grid);
-        canvas.rect(mapX,p.y,mapWidth,1,grid);
-    }
-    for (float radius : {20.f,28.f,36.f}) {
-        for (int i = 0; i < 28; ++i) {
-            const float angle = i*6.2831853f/28, next = (i+1)*6.2831853f/28;
-            const auto at = [radius](float a) { return Point(78,87)+Point(std::cos(a)*1.18f,std::sin(a))*radius; };
-            canvas.stroke(point(at(angle)),point(at(next)),1,{.42f,.50f,.33f,.19f});
-        }
-    }
-
-    const auto riverVertices = canvas.vertices.size();
-    for (std::size_t i = 1; i < river.size(); ++i)
-        canvas.stroke(point(river[i-1]),point(river[i]),riverWidth * mapWidth/worldSize+4,{.50f,.68f,.65f,1});
-    for (std::size_t i = 1; i < river.size(); ++i)
-        canvas.stroke(point(river[i-1]),point(river[i]),riverWidth * mapWidth/worldSize,{.40f,.64f,.69f,1});
-    for (std::size_t i = riverVertices; i < canvas.vertices.size(); ++i)
-        canvas.vertices[i].point = glm::clamp(canvas.vertices[i].point,point({0,0}),point({worldSize,worldSize}));
-    const auto road = [&](MapLine path, Color color) {
-        auto a = glm::clamp(path.start,Point(3),Point(worldSize-4));
-        auto b = glm::clamp(path.end,Point(3),Point(worldSize-4));
-        canvas.stroke(point(a),point(b),path.width * mapWidth/worldSize,color);
-    };
-    for (const auto path : campusPaths)
-        road(path,path.surface == Block::pavement ? Color(.63f,.64f,.59f,1) : Color(.97f,.95f,.83f,1));
-    for (const auto path : hillPaths) road(path,{.97f,.95f,.83f,1});
-    road(bridge,{.55f,.49f,.49f,1});
+    canvas.rect(mapX-3,mapY-3,mapWidth+6,mapWidth+6,{.45f,.37f,.52f,1});
+    canvas.mapImage({mapX,mapY},mapWidth);
 
     const Color purple{.32f,.22f,.49f,1}, dark{.22f,.23f,.30f,1};
     const float menuX = x+582;
-    canvas.text(menuX,y+119,"LANDMARKS",11,lilac,true);
+    canvas.text(menuX,y+119,"LANDMARKS",13,lilac,true);
     for (std::size_t i = 0; i < landmarks.size(); ++i) {
         const auto& l = landmarks[i];
-        const auto a = point(l.low), b = point(glm::vec2(l.high)+1.f), c = (a+b)*.5f;
+        const auto c = point((glm::vec2(l.low+l.high)+1.f)*.5f);
         const float row = y+144+24.f*i;
         const bool signature = i < 2;
-        const Color footprint = signature ? Color(.64f,.53f,.73f,1) : Color(.67f,.68f,.59f,1);
-        canvas.rounded(a.x,a.y,b.x-a.x,b.y-a.y,3,footprint);
-        canvas.circle(c,11.f,purple);
+        canvas.rect(c.x-11,c.y-10,22,20,{.17f,.13f,.25f,1});
+        canvas.rect(c.x-10,c.y-9,20,17,signature ? purple : Color(.30f,.28f,.39f,1));
         char number[5];
         std::snprintf(number,sizeof(number),"%02zu",i+1);
         canvas.centered(c.x,c.y+3.4f,number,10,ivory,true);
         canvas.rounded(menuX,row-8,25,19,5,{.24f,.18f,.34f,1});
         canvas.centered(menuX+12.5f,row+6,number,10,lilac,true);
-        canvas.text(menuX+35,row+6,l.name,12.5f,ivory,signature);
-        canvas.rect(menuX,row+14,277,1,{.62f,.53f,.72f,.21f});
+        canvas.text(menuX+35,row+6,l.name,14.5f,ivory,signature);
+        canvas.rect(menuX,row+14,x+panelWidth-26-menuX,1,{.62f,.53f,.72f,.21f});
     }
-    canvas.text(mapX+24,mapY+32,"N",13,dark,true);
-    canvas.triangle({mapX+22,mapY+54},{mapX+36,mapY+54},{mapX+29,mapY+38},purple);
-    canvas.text(mapX+46,mapY+15,"WESTERN ROAD",9,dark,true);
-    canvas.text(mapX+284,mapY+459,"THAMES RIVER",10,{.22f,.41f,.47f,1},true);
-    const auto crossing = point({137,126});
-    canvas.text(crossing.x+6,crossing.y+8,"UNIVERSITY BRIDGE",9,dark,true);
-    const auto uc = point({72,100});
-    canvas.text(uc.x,uc.y,"UC HILL",10,dark,true);
+    const auto label = [&](Point p, std::string_view text) {
+        canvas.rect(p.x-4,p.y-12,Canvas::width(text,11,true)+8,16,{.15f,.13f,.22f,.90f});
+        canvas.text(p.x,p.y,text,11,ivory,true);
+    };
+    canvas.rect(mapX+9,mapY+10,25,34,{.15f,.13f,.22f,.90f});
+    canvas.centered(mapX+21.5f,mapY+24,"N",13,ivory,true);
+    canvas.rect(mapX+20,mapY+28,3,10,lilac);
+    canvas.rect(mapX+17,mapY+31,9,3,lilac);
+    label(point({24,9}),"WESTERN ROAD");
+    label(point({103,169}),"THAMES RIVER");
+    label(point({139,127}),"UNIVERSITY BRIDGE");
+    label(point({72,100}),"UC HILL");
     const Color you{.97f,.69f,.26f,1};
     const auto player = point(glm::clamp(state.position,Point(4),Point(worldSize-4)));
-    canvas.circle(player,9,dark);
-    canvas.circle(player,6.5f,you);
-    canvas.circle({menuX+7,y+582},6.5f,you);
-    canvas.text(menuX+21,y+587,"Your location",12,ivory,true);
-    canvas.text(menuX,y+614,"Schematic map of Western's campus core",11,muted);
-    canvas.text(mapX,y+658,"WESTERN ROAD TO THE THAMES RIVER",9,lilac,true);
+    canvas.rect(player.x-6,player.y-6,12,12,dark);
+    canvas.rect(player.x-4,player.y-4,8,8,you);
+    canvas.rect(menuX,y+621,13,13,you);
+    canvas.text(menuX+21,y+632,"Your location",14,ivory,true);
 }
 
 void toolbar(Canvas& canvas, float w, float h, const HudState& state) {
@@ -313,12 +269,34 @@ void toolbar(Canvas& canvas, float w, float h, const HudState& state) {
     }
 }
 
+using MapColor = glm::ivec3;
+
+MapColor mapColor(Block block, int elevation, int x, int z) {
+    const int grain = ((x+z)%2 ? 2 : -2) + ((x*7+z*17)%13 == 0 ? 8 : 0);
+    switch (block) {
+        case Block::water: return MapColor(79,144,158) + ((x+7*z)%19 < 3 ? 13 : 0);
+        case Block::grass: return MapColor(174,188,130) - std::max(0,elevation-6)*3 + grain;
+        case Block::sand: return MapColor(202,190,146) + grain;
+        case Block::leaves:
+        case Block::needles: return MapColor(105,132,79) + grain;
+        case Block::goldLeaves: return MapColor(194,153,73) + grain;
+        case Block::redLeaves: return MapColor(169,103,70) + grain;
+        case Block::pavement: return MapColor(154,150,145) + grain;
+        case Block::limestone:
+        case Block::concrete: return MapColor(224,213,181) + grain;
+        case Block::slate: return MapColor(108,92,128) + grain;
+        case Block::copper: return MapColor(83,126,121) + grain;
+        case Block::glass: return MapColor(138,140,157) + grain;
+        default: return MapColor(164,144,131) + grain;
+    }
+}
+
 } // namespace
 
 struct Hud::Data {
     GLuint program = shaderProgram(vertex, fragment);
     GLint size = glGetUniformLocation(program,"size");
-    GLuint vao = 0, buffer = 0, texture = 0;
+    GLuint vao = 0, buffer = 0, texture = 0, campusTexture = 0;
     Canvas canvas;
 
     Data() {
@@ -342,15 +320,18 @@ struct Hud::Data {
         glGenTextures(1,&texture);
         glBindTexture(GL_TEXTURE_2D,texture);
         glTexImage2D(GL_TEXTURE_2D,0,GL_R8,font::width,font::height,0,GL_RED,GL_UNSIGNED_BYTE,pixels.data());
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
         glUseProgram(program);
         glUniform1i(glGetUniformLocation(program,"atlas"),0);
+        glUniform1i(glGetUniformLocation(program,"campus"),1);
+        glGenTextures(1,&campusTexture);
     }
 
     ~Data() {
+        glDeleteTextures(1,&campusTexture);
         glDeleteTextures(1,&texture);
         glDeleteBuffers(1,&buffer);
         glDeleteVertexArrays(1,&vao);
@@ -360,6 +341,28 @@ struct Hud::Data {
 
 Hud::Hud() : data_(std::make_unique<Data>()) {}
 Hud::~Hud() = default;
+
+void Hud::setCampusMap(const World& world) {
+    const int edge = world.edge();
+    std::vector<std::uint8_t> pixels;
+    pixels.reserve(edge*edge*4);
+    for (int z = 0; z < edge; ++z) {
+        for (int x = 0; x < edge; ++x) {
+            int y = worldHeight-1;
+            while (y > 0 && world.get({x,y,z}) == Block::air) --y;
+            const auto color = mapColor(world.get({x,y,z}),y,x,z);
+            pixels.insert(pixels.end(),{static_cast<std::uint8_t>(color.r),
+                                        static_cast<std::uint8_t>(color.g),
+                                        static_cast<std::uint8_t>(color.b),255});
+        }
+    }
+    glBindTexture(GL_TEXTURE_2D,data_->campusTexture);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,edge,edge,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+}
 
 void Hud::draw(int width, int height, const HudState& state) {
     auto& d = *data_;
@@ -409,6 +412,8 @@ void Hud::draw(int width, int height, const HudState& state) {
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(d.program);
     glUniform2f(d.size,w,h);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D,d.campusTexture);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D,d.texture);
     glBindVertexArray(d.vao);
@@ -418,4 +423,4 @@ void Hud::draw(int width, int height, const HudState& state) {
     glDisable(GL_BLEND);
 }
 
-} // namespace ql
+} // namespace wsim

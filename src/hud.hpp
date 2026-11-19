@@ -7,7 +7,7 @@
 #include <memory>
 #include <string_view>
 
-namespace ql {
+namespace wsim {
 
 struct MaterialSlot { Block block; std::string_view label; };
 inline constexpr std::array<MaterialSlot, 8> buildingPalette{{
@@ -33,6 +33,7 @@ public:
     ~Hud();
     Hud(const Hud&) = delete;
     Hud& operator=(const Hud&) = delete;
+    void setCampusMap(const World& world);
     void draw(int width, int height, const HudState& state);
 
 private:
@@ -40,4 +41,4 @@ private:
     std::unique_ptr<Data> data_;
 };
 
-} // namespace ql
+} // namespace wsim

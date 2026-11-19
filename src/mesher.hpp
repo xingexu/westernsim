@@ -3,7 +3,7 @@
 #include "world.hpp"
 #include <vector>
 
-namespace ql {
+namespace wsim {
 
 struct Vertex {
     glm::vec3 position;
@@ -20,4 +20,4 @@ struct Mesh {
 enum class Meshing { exposed, greedy };
 Mesh meshChunk(const World& world, const Chunk& chunk, Meshing mode = Meshing::greedy);
 
-} // namespace ql
+} // namespace wsim

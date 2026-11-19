@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 struct Face {
@@ -88,4 +88,4 @@ Mesh meshChunk(const World& world, const Chunk& chunk, Meshing mode) {
     return mesh;
 }
 
-} // namespace ql
+} // namespace wsim

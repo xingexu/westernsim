@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "campus.hpp"
 #include "shaders.hpp"
 
 #include <glad/gl.h>
@@ -13,7 +14,7 @@
 #include <string>
 #include <utility>
 
-namespace ql {
+namespace wsim {
 namespace {
 
 constexpr int shadowSize = 1536;
@@ -21,14 +22,15 @@ const glm::vec3 sun = glm::normalize(glm::vec3(.53f,.69f,.49f));
 constexpr glm::vec3 rgb(unsigned hex) {
     return {((hex >> 16) & 255) / 255.f, ((hex >> 8) & 255) / 255.f, (hex & 255) / 255.f};
 }
-const std::array<glm::vec3,37> colors{
-    rgb(0x000000), rgb(0x809d4c), rgb(0x91704f), rgb(0x75858a), rgb(0xdac68b),
+const std::array<glm::vec3,47> colors{
+    rgb(0x000000), rgb(0x879c50), rgb(0x927050), rgb(0x74838b), rgb(0xd9c392),
     rgb(0x856045), rgb(0x496e47), rgb(0xddcbae), rgb(0xa5b655), rgb(0xe5d6b2),
     rgb(0xad6252), rgb(0xab8055), rgb(0x45998e), rgb(0xffd080),
     rgb(0xbca985), rgb(0x45565e), rgb(0x3e525f), rgb(0x777c7e), rgb(0xb2b1a3),
-    rgb(0x4b8982), rgb(0xde9c45), rgb(0xba6042), rgb(0x665584),
-    {}, {}, {}, {}, {}, {}, {},
-    rgb(0xf3bd58), rgb(0x487a76), rgb(0x324e56), rgb(0xb97958), rgb(0x57433e),
+    rgb(0x4b8982), rgb(0xdca044), rgb(0xc36940), rgb(0x665584),
+    rgb(0x82709a), rgb(0x61506b), rgb(0x414659), rgb(0xb83e4c), rgb(0xdcd8bf), rgb(0x65753e),
+    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+    rgb(0xf3bd58), rgb(0x64558c), rgb(0x33354e), rgb(0xb97958), rgb(0x57433e),
     rgb(0xc56b4b), rgb(0xf3e9cb)
 };
 
@@ -152,21 +154,21 @@ std::array<Piece,15> avatar(const Player& player) {
         return Piece{glm::scale(glm::translate(model, {-size.x/2, -drop, -size.z/2}), size), mat};
     };
     return {{
-        box(31, {0,.84f,0}, {.49f,.54f,.30f}),
-        box(33, {0,1.29f,0}, {.35f,.36f,.33f}),
-        box(34, {0,1.34f,.141f}, {.35f,.27f,.063f}),
-        box(30, {0,1.48f,-.025f}, {.40f,.115f,.42f}),
-        box(30, {0,1.412f,-.061f}, {.46f,.044f,.53f}),
-        box(35, {0,1.106f,.006f}, {.39f,.08f,.35f}),
-        box(34, {0,.87f,.188f}, {.37f,.39f,.154f}),
-        box(35, {0,.944f,.277f}, {.33f,.145f,.039f}),
-        box(36, {0,.931f,.302f}, {.082f,.081f,.014f}),
-        limb(31, {-.33f,1.055f,0}, {.16f,.39f,.18f}, -swing, .37f),
-        limb(31, { .33f,1.055f,0}, {.16f,.39f,.18f}, swing, .37f),
-        limb(33, {-.33f,1.055f,0}, {.146f,.11f,.165f}, -swing, .456f),
-        limb(33, { .33f,1.055f,0}, {.146f,.11f,.165f}, swing, .456f),
-        limb(32, {-.13f,.57f,-.025f}, {.193f,.57f,.235f}, swing, .57f),
-        limb(32, { .13f,.57f,-.025f}, {.193f,.57f,.235f}, -swing, .57f)
+        box(41, {0,.84f,0}, {.49f,.54f,.30f}),
+        box(43, {0,1.29f,0}, {.35f,.36f,.33f}),
+        box(44, {0,1.34f,.141f}, {.35f,.27f,.063f}),
+        box(40, {0,1.48f,-.025f}, {.40f,.115f,.42f}),
+        box(40, {0,1.412f,-.061f}, {.46f,.044f,.53f}),
+        box(45, {0,1.106f,.006f}, {.39f,.08f,.35f}),
+        box(44, {0,.87f,.188f}, {.37f,.39f,.154f}),
+        box(45, {0,.944f,.277f}, {.33f,.145f,.039f}),
+        box(46, {0,.931f,.302f}, {.082f,.081f,.014f}),
+        limb(41, {-.33f,1.055f,0}, {.16f,.39f,.18f}, -swing, .37f),
+        limb(41, { .33f,1.055f,0}, {.16f,.39f,.18f}, swing, .37f),
+        limb(43, {-.33f,1.055f,0}, {.146f,.11f,.165f}, -swing, .456f),
+        limb(43, { .33f,1.055f,0}, {.146f,.11f,.165f}, swing, .456f),
+        limb(42, {-.13f,.57f,-.025f}, {.193f,.57f,.235f}, swing, .57f),
+        limb(42, { .13f,.57f,-.025f}, {.193f,.57f,.235f}, -swing, .57f)
     }};
 }
 
@@ -228,6 +230,7 @@ struct Renderer::Data {
         cube.upload(meshChunk(sample, sample.chunks().front()));
         world.use();
         vector(world.uniform("lightDirection"), sun);
+        vector(world.uniform("clockCenter"), campusClockCenter());
         glUniform3fv(world.uniform("palette[0]"), static_cast<GLsizei>(colors.size()),
                      glm::value_ptr(colors.front()));
         glUniform1i(world.uniform("shadowMap"), 0);
@@ -318,7 +321,7 @@ void Renderer::update(const World& world, glm::ivec3 edited) {
 }
 
 RenderStats Renderer::draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                           int width, int height, float time) {
+                           int width, int height, float time, unsigned target) {
     auto& d = *data_;
     const glm::mat4 identity{1.f};
     const auto viewProjection = camera.projection * camera.view;
@@ -338,7 +341,7 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
         d.cube.draw();
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER,target);
     glViewport(0, 0, width, height);
     glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
@@ -387,4 +390,4 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
     return stats;
 }
 
-} // namespace ql
+} // namespace wsim

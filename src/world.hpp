@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace ql {
+namespace wsim {
 
 constexpr int chunkSize = 16;
 constexpr int worldHeight = 64;
@@ -18,7 +18,8 @@ constexpr int worldSize = 192;
 enum class Block : std::uint8_t {
     air, grass, earth, shale, sand, cedar, needles, birch, leaves,
     limestone, brick, planks, water, lantern, sandstone, slate, glass,
-    pavement, concrete, copper, goldLeaves, redLeaves, stainedGlass, count
+    pavement, concrete, copper, goldLeaves, redLeaves, stainedGlass,
+    lancet, clock, iron, flagRed, flagWhite, flowers, count
 };
 
 constexpr bool solid(Block block) {
@@ -59,4 +60,4 @@ struct Hit {
 
 std::optional<Hit> raycast(const World& world, glm::vec3 start, glm::vec3 direction, float reach);
 
-} // namespace ql
+} // namespace wsim

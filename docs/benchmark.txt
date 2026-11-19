@@ -1,8 +1,5 @@
-Quarrylight benchmark
-Ubuntu 22.04, GCC 11.4 Release build, Intel Xeon VM with 8 logical CPUs
-
 Renderer: llvmpipe (LLVM 15.0.7, 256 bits)
 Driver: 3.3 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
-World: 192 x 64 x 192 | 1280 x 720 | 30 warm-up + 120 measured frames per mode | VSync off
-Exposed: 358298 triangles across 263 mesh-bearing chunks | 144.8 avg chunks and 188730.5 avg triangles in camera pass | 12.7 FPS (78.6 ms/frame)
-Greedy: 61730 triangles across 263 mesh-bearing chunks | 144.8 avg chunks and 30420.8 avg triangles in camera pass | 27.3 FPS (36.6 ms/frame)
+World: 192 x 64 x 192 | 1280 x 720 output, 426 x 240 scene | 30 warm-up + 120 measured frames per mode | VSync off
+Exposed: 361504 triangles across 265 mesh-bearing chunks | 155.9 avg chunks and 202975.5 avg triangles in camera pass | 16.8 FPS (59.6 ms/frame)
+Greedy: 62364 triangles across 265 mesh-bearing chunks | 155.9 avg chunks and 32995.3 avg triangles in camera pass | 45.2 FPS (22.1 ms/frame)

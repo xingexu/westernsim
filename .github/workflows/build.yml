@@ -30,5 +30,7 @@ jobs:
       - name: Smoke-test the OpenGL renderer
         if: runner.os == 'Linux'
         run: |
-          LIBGL_ALWAYS_SOFTWARE=1 MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a -s "-screen 0 1600x900x24" ./build/quarrylight --screenshot /tmp/campus.ppm
-          test -s /tmp/campus.ppm
+          export LIBGL_ALWAYS_SOFTWARE=1 MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330
+          xvfb-run -a -s "-screen 0 1600x900x24" ./build/westernsim --screenshot /tmp/campus.ppm
+          xvfb-run -a -s "-screen 0 1600x900x24" ./build/westernsim --screenshot-map /tmp/map.ppm
+          test -s /tmp/campus.ppm && test -s /tmp/map.ppm
