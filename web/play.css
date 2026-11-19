@@ -1,0 +1,87 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, sans-serif;
+  color: #fbf8ff;
+  background: #171124;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; overflow: hidden; }
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100dvh;
+  outline: none;
+  touch-action: none;
+}
+
+.launcher {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center start;
+  padding: clamp(1rem, 6vw, 6rem);
+  overflow: auto;
+  background: linear-gradient(90deg, #161024c9, #16102438), url("./campus.webp") center / cover;
+}
+
+.launcher.ready {
+  background: linear-gradient(90deg, #16102499, #1610242b);
+}
+
+.card {
+  width: min(100%, 27rem);
+  padding: clamp(1.2rem, 4vw, 2rem);
+  border-radius: 1.5rem;
+  border: 1px solid #d8c7ff55;
+  background: #211832ef;
+  box-shadow: 0 1.75rem 5rem #120a27a0;
+}
+
+.brand { display: flex; align-items: center; gap: 1rem; }
+.mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 3.35rem;
+  height: 3.35rem;
+  border-radius: 1rem;
+  background: #7852c5;
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+.brand p { margin: 0 0 .18rem; color: #d6bcff; font-size: .76rem; font-weight: 650; }
+h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.4rem); line-height: 1; letter-spacing: -.045em; }
+#status { min-height: 1.5rem; margin: 1.5rem 0 1rem; color: #ddd4ed; line-height: 1.5; }
+
+button {
+  width: 100%;
+  padding: .85rem 1rem;
+  border: 0;
+  border-radius: .7rem;
+  background: #f9d17e;
+  color: #241628;
+  font: inherit;
+  font-weight: 760;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #ffdfa0; }
+button:disabled { opacity: .52; cursor: default; }
+button:focus-visible { outline: 3px solid #c0a2f3; outline-offset: 4px; }
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: .7rem 1rem;
+  margin: 1.45rem 0 0;
+  border-top: 1px solid #d8c7ff30;
+  padding-top: 1rem;
+  font-size: .8rem;
+}
+.controls div { display: flex; justify-content: space-between; gap: .45rem; }
+.controls dt { color: #d8cde9; }
+.controls dd { margin: 0; font-weight: 650; }
+@media (max-width: 400px) {
+  .controls { grid-template-columns: 1fr; }
+}

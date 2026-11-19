@@ -35,3 +35,12 @@ jobs:
           xvfb-run -a -s "-screen 0 1600x900x24" ./build/westernsim --screenshot-map /tmp/map.ppm
           xvfb-run -a -s "-screen 0 1600x900x24" ./build/westernsim --screenshot-avatar /tmp/avatar.ppm
           test -s /tmp/campus.ppm && test -s /tmp/map.ppm && test -s /tmp/avatar.ppm
+
+  browser-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Vercel output
+        run: bash tools/build_web.sh
+      - name: Verify browser assets
+        run: test -s dist/index.html && test -s dist/westernsim.js && test -s dist/westernsim.wasm

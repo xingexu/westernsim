@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171124">
+  <meta name="description" content="Explore and build on a virtual Western University campus.">
+  <title>Western Sim</title>
+  <link rel="stylesheet" href="./play.css">
+  <script src="./play.js" defer></script>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" aria-label="Western Sim game"></canvas>
+  <main id="launcher" class="launcher">
+    <section class="card" aria-labelledby="title">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">W</div>
+        <div>
+          <p>Western University</p>
+          <h1 id="title">Western Sim</h1>
+        </div>
+      </div>
+      <p id="status" role="status">Loading the campus…</p>
+      <button id="play" type="button" disabled>Play</button>
+      <dl class="controls">
+        <div><dt>Walk</dt><dd>W A S D</dd></div>
+        <div><dt>Look</dt><dd>Mouse</dd></div>
+        <div><dt>Jump</dt><dd>Space</dd></div>
+        <div><dt>Campus map</dt><dd>M</dd></div>
+        <div><dt>Build</dt><dd>Left / right click</dd></div>
+        <div><dt>Save / load</dt><dd>K / L</dd></div>
+      </dl>
+      <noscript>Enable JavaScript to play Western Sim.</noscript>
+    </section>
+  </main>
+</body>
+</html>

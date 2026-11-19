@@ -6,7 +6,22 @@ Start below UC Hill, walk past University College and Middlesex College, or foll
 
 ![The third-person avatar at the foot of UC Hill, looking up toward University College and the Middlesex College clock tower](docs/western-campus.webp)
 
-## Build and run
+## Play in a browser
+
+Use a desktop browser with WebGL 2, a keyboard, and a mouse. Click **Play** to capture the mouse and **Esc** to release it. Browser controls match the desktop controls below, with **K** to save, **L** to load, **I** for diagnostics, and **O** to compare meshing modes. The browser stores one save per site in IndexedDB. A preview URL and a production URL have separate saves.
+
+For Vercel, import this repository with the **Other** framework preset and the repository root as the root directory. The checked-in Vercel configuration runs the WebAssembly build and serves `dist/`. Clear any dashboard overrides for the install command, build command, or output directory that conflict with it.
+
+To build and serve the same files locally on Linux or macOS, run the following and open port 8080 in your browser.
+
+```sh
+bash tools/build_web.sh
+python3 -m http.server 8080 --directory dist
+```
+
+The script will use an active Emscripten SDK or install a pinned SDK automatically. The first build downloads the toolchain and the engine's dependencies.
+
+## Desktop build
 
 Use a C++17 compiler, CMake 3.20+, and an OpenGL 3.3-capable graphics driver. On Debian and Ubuntu, install `build-essential cmake libglfw3-dev`. On macOS, install Xcode Command Line Tools and CMake. On Windows, use the Visual Studio **Desktop development with C++** workload and CMake. CMake uses a compatible system GLFW/GLM when available and fetches pinned versions otherwise. GLAD is generated and included in the source.
 

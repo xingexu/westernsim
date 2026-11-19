@@ -1,8 +1,10 @@
 #pragma once
 
+#include "graphics.hpp"
+
 namespace wsim::shaders {
 
-inline constexpr char worldVertex[] = R"GLSL(#version 330 core
+inline constexpr char worldVertex[] = WESTERNSIM_GLSL R"GLSL(
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
 layout(location=2) in float material;
@@ -20,7 +22,10 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char worldFragment[] = R"GLSL(#version 330 core
+inline constexpr char worldFragment[] = WESTERNSIM_GLSL R"GLSL(
+#ifdef GL_ES
+precision highp sampler2DShadow;
+#endif
 in vec3 point, face;
 in vec4 shadowPoint;
 flat in int tile;
@@ -38,7 +43,7 @@ float hash(vec3 p) {
 
 float sunlight(vec3 n) {
     vec3 p = shadowPoint.xyz * .5 + .5;
-    if (p.z > 1. || p.z < 0.) return 1.;
+    if (any(greaterThan(p,vec3(1.))) || any(lessThan(p,vec3(0.)))) return 1.;
     float depth = p.z - mix(.0012,.00050,max(dot(n,lightDirection),0.));
     vec2 px = 1. / vec2(textureSize(shadowMap,0));
     return .25 * (texture(shadowMap,vec3(p.xy+px*vec2(-1.2,.4),depth)) +
@@ -177,7 +182,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char skyVertex[] = R"GLSL(#version 330 core
+inline constexpr char skyVertex[] = WESTERNSIM_GLSL R"GLSL(
 out vec2 ndc;
 void main() {
     ndc = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2. - 1.;
@@ -185,7 +190,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char avatarVertex[] = R"GLSL(#version 330 core
+inline constexpr char avatarVertex[] = WESTERNSIM_GLSL R"GLSL(
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 color;
 uniform mat4 transform;
@@ -196,7 +201,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char avatarFragment[] = R"GLSL(#version 330 core
+inline constexpr char avatarFragment[] = WESTERNSIM_GLSL R"GLSL(
 in vec3 bakedColor;
 out vec4 color;
 void main() {
@@ -204,7 +209,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char skyFragment[] = R"GLSL(#version 330 core
+inline constexpr char skyFragment[] = WESTERNSIM_GLSL R"GLSL(
 in vec2 ndc;
 out vec4 color;
 uniform mat4 inverseViewProjection;
@@ -241,7 +246,7 @@ void main() {
 }
 )GLSL";
 
-inline constexpr char depthVertex[] = R"GLSL(#version 330 core
+inline constexpr char depthVertex[] = WESTERNSIM_GLSL R"GLSL(
 layout(location=0) in vec3 position;
 layout(location=2) in float material;
 uniform mat4 lightMatrix, model;
@@ -249,18 +254,18 @@ flat out float tile;
 void main() { tile = material; gl_Position = lightMatrix * model * vec4(position,1.); }
 )GLSL";
 
-inline constexpr char depthFragment[] = R"GLSL(#version 330 core
+inline constexpr char depthFragment[] = WESTERNSIM_GLSL R"GLSL(
 flat in float tile;
 void main() { if (tile == 12.) discard; }
 )GLSL";
 
-inline constexpr char lineVertex[] = R"GLSL(#version 330 core
+inline constexpr char lineVertex[] = WESTERNSIM_GLSL R"GLSL(
 layout(location=0) in vec3 position;
 uniform mat4 transform;
 void main() { gl_Position = transform * vec4(position, 1.); }
 )GLSL";
 
-inline constexpr char lineFragment[] = R"GLSL(#version 330 core
+inline constexpr char lineFragment[] = WESTERNSIM_GLSL R"GLSL(
 out vec4 color;
 void main() { color = vec4(.98,.91,.67,1.); }
 )GLSL";
