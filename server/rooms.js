@@ -34,10 +34,15 @@ export async function roomStore(redisUrl, deliver) {
   const scope = `westernsim:v1:${process.env.VERCEL_ENV || "local"}`;
   const channel = `${scope}:events`;
   const key = (room) => `${scope}:room:${room}`;
+  let initialized = false;
   const client = createClient({
     url: redisUrl,
     disableOfflineQueue: true,
-    socket: { connectTimeout: 3000, reconnectStrategy: (retries) => retries < 4 ? 250 * (retries + 1) : false },
+    socket: {
+      connectTimeout: 3000,
+      reconnectStrategy: (retries) =>
+        initialized || retries < 4 ? Math.min(250 * (retries + 1), 5000) : false,
+    },
   });
   const subscriber = client.duplicate();
   for (const redis of [client, subscriber]) {
@@ -49,19 +54,26 @@ export async function roomStore(redisUrl, deliver) {
       const [room, message] = JSON.parse(data);
       deliver(room, message);
     });
+    // Keep reconnecting after startup. node-redis restores subscriptions on reconnect.
+    initialized = true;
   } catch (error) {
     if (client.isOpen) client.destroy();
     if (subscriber.isOpen) subscriber.destroy();
     throw error;
   }
 
+  const requireSubscriber = () => {
+    if (!subscriber.isReady) throw new Error("Room subscription unavailable");
+  };
   return {
     async reserve(room, id) {
+      requireSubscriber();
       return await client.eval(reserveRoom, {
         keys: [key(room)], arguments: [id, String(Date.now()), String(leaseMs)],
       }) === 1;
     },
     async refresh(room, id) {
+      requireSubscriber();
       const script = `
       local untilAt = redis.call('ZSCORE', KEYS[1], ARGV[1])
       if not untilAt or tonumber(untilAt) <= tonumber(ARGV[2]) then return 0 end
@@ -74,6 +86,9 @@ export async function roomStore(redisUrl, deliver) {
       }) === 1;
     },
     release: (room, id) => client.zRem(key(room), id),
-    publish: (room, message) => client.publish(channel, JSON.stringify([room, message])),
+    publish(room, message) {
+      requireSubscriber();
+      return client.publish(channel, JSON.stringify([room, message]));
+    },
   };
 }
