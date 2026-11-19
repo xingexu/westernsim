@@ -1,4 +1,5 @@
 #include "rigid_boxes.hpp"
+#include "scenery.hpp"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -119,14 +120,25 @@ void resolve(RigidBox& a, const Collider& other, RigidBox* b = nullptr, glm::vec
 }
 
 template<typename Function>
-bool solidCells(const World& world, const Collider& box, Function visit) {
+bool worldColliders(const World& world, const Collider& box, Function visit) {
     const auto half = extent(box);
     const glm::ivec3 low = glm::floor(box.center-half), high = glm::floor(box.center+half);
-    for (int y = low.y; y <= high.y; ++y)
-        for (int z = low.z; z <= high.z; ++z)
-            for (int x = low.x; x <= high.x; ++x)
-                if (solid(world.get({x,y,z})) &&
-                    visit(Collider{glm::vec3(x,y,z)+.5f,glm::vec3(.5f)})) return true;
+    // A trunk's anchor can sit below the box's lower bound.
+    for (int y = low.y-treeTrunkCells+1; y <= high.y; ++y) {
+        for (int z = low.z; z <= high.z; ++z) {
+            for (int x = low.x; x <= high.x; ++x) {
+                const glm::ivec3 cell{x,y,z};
+                const auto block = world.get(cell);
+                if (y >= low.y && solid(block)) {
+                    if (visit(Collider{glm::vec3(cell)+.5f,glm::vec3(.5f)})) return true;
+                } else if (canopy(block)) {
+                    const auto size = treeTrunkSize(cell);
+                    const auto center = glm::vec3(cell)+glm::vec3(.5f,size.y*.5f,.5f);
+                    if (visit(Collider{center,size*.5f})) return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -141,7 +153,7 @@ bool RigidBoxes::spawn(const World& world, glm::vec3 position) {
     RigidBox body{position};
     const auto box = shape(body);
     if (!world.contains(glm::ivec3(glm::floor(position))) ||
-        solidCells(world,box,[&](const Collider& voxel) { return intersect(box,voxel).has_value(); }) ||
+        worldColliders(world,box,[&](const Collider& collider) { return intersect(box,collider).has_value(); }) ||
         std::any_of(bodies_.begin(),bodies_.end(),[&](const auto& other) { return intersect(box,shape(other)).has_value(); }))
         return false;
     if (bodies_.size() == 32) bodies_.erase(bodies_.begin());
@@ -172,8 +184,8 @@ void RigidBoxes::step(const World& world, const Player& player, glm::vec3 previo
                 if (glm::distance(body.position,other.position) < 1.4f)
                     resolve(body,shape(other),&other);
             }
-            solidCells(world,shape(body),[&](const Collider& voxel) {
-                resolve(body,voxel);
+            worldColliders(world,shape(body),[&](const Collider& collider) {
+                resolve(body,collider);
                 return false;
             });
         }

@@ -163,6 +163,10 @@ void rigidBodyDynamics() {
               "a rotating box respects the wall and floor");
     }
     check(moved && rotated,"an off-center avatar impact translates and rotates the box");
+
+    world.set({6,1,10},Block::canopyGreen);
+    check(!boxes.spawn(world,{6.5f,2.5f,10.5f}),"a box cannot spawn across a trunk above its anchor");
+    check(boxes.spawn(world,{6.5f,2.5f,11.1f}),"the space beside the trunk stays clear");
 }
 
 void heightField() {
