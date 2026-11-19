@@ -12,14 +12,19 @@ Use a desktop browser with WebGL 2, a keyboard, and a mouse. Click **Play** to c
 
 For Vercel, import this repository with the **Other** framework preset and the repository root as the root directory. The checked-in Vercel configuration runs the WebAssembly build and serves `dist/`. Clear any dashboard overrides for the install command, build command, or output directory that conflict with it.
 
-To build and serve the same files locally on Linux or macOS, run the following and open port 8080 in your browser.
+Open **Two-player room**, choose **Create room**, and share the invite link with a friend. Each room admits two players. You see each other's avatars and movement. Boxes and water ripples are simulated separately on each device.
+
+To build and serve the game and relay locally on Linux or macOS, use Node.js 22 and run the following. Open port 8080 in two desktop browser windows.
 
 ```sh
 bash tools/build_web.sh
-python3 -m http.server 8080 --directory dist
+npm install
+npm run serve
 ```
 
 The script will use an active Emscripten SDK or install a pinned SDK automatically. The first build downloads the toolchain and the engine's dependencies.
+
+Vercel serves the WebSocket relay at `/api/ws` with Fluid Compute. Rooms work in memory on a single relay instance, including the local server. Set `REDIS_URL` to a Redis TCP or TLS URL to share room membership and poses across Vercel instances. Clients reconnect when instances restart or connections expire. Run `npm test` to exercise room isolation, the two-player limit, and the pose relay.
 
 ## Desktop build
 
@@ -40,6 +45,7 @@ With a multi-config generator such as Visual Studio, run `build/Release/westerns
 | Hold **Shift** / **Space** | Sprint while held / jump or swim upward |
 | **C** | Switch between street level and overhead |
 | **M** / **Tab** | Campus map / field guide |
+| **B** | Spawn a wooden box in front of you. Walk into it to push it |
 | **F1** | Diagnostics |
 | **R** / **Esc** | Return to UC Hill / release or recapture the cursor |
 
@@ -72,6 +78,9 @@ The exported mesh is bundled. To refresh it, run `node tools/export_western_avat
 | Rendering | Indexed OpenGL and WebGL meshes, camera-frustum culling, nearby directional shadows, procedural pixel textures, and animated water. A low-resolution framebuffer is presented with nearest-neighbor scaling. |
 | Avatar | Imported, articulated voxel mesh, camera-relative locomotion, and a third-person orbit that retracts against the world. |
 | Physics | Fixed 120 Hz gravity and voxel AABB collision, with one-block step-up and swimming. |
+| Rigid bodies | Spawnable oriented boxes with mass and a quaternion pose. Contact impulses against voxels, other boxes, and the avatar apply restitution, friction, and torque at 120 Hz. |
+| Water | A damped finite-difference height field advances on the physics clock. Swimming perturbs the field and the renderer shades the Thames using the simulated surface gradients. |
+| Multiplayer | A WebSocket relay sends browser avatar poses at about 20 Hz. Clients interpolate positions, headings, and walking animation over a short buffer. |
 | Campus data | Run-length encoded column heights, materials, roofs, and sparse bridge and tree locations. The game loads these into a read-only campus. |
 
 The CTest suite covers triangle counts, material splits, chunk seams, face winding, movement, camera raycasts, engine snapshot compatibility, the University Drive crossing, and collision with building exteriors and tree trunks.

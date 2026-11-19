@@ -88,6 +88,42 @@ button:focus-visible { outline: 3px solid #c0a2f3; outline-offset: 4px; }
 .controls div { display: flex; justify-content: space-between; gap: .45rem; }
 .controls dt { color: #d8cde9; }
 .controls dd { margin: 0; font-weight: 650; }
+
+#multiplayer {
+  margin-top: 1rem;
+  padding-top: .85rem;
+  border-top: 2px solid #816998;
+}
+#multiplayer summary { color: #dac7f1; cursor: pointer; font: .85rem Silkscreen, monospace; }
+#multiplayer button {
+  width: auto;
+  padding: .48rem .65rem;
+  font-size: .82rem;
+  margin-top: .65rem;
+}
+#join-room { display: flex; align-items: end; gap: .55rem; }
+#room-code {
+  min-width: 0;
+  width: 100%;
+  padding: .48rem;
+  border: 2px solid #816998;
+  background: #181320;
+  color: inherit;
+  font: inherit;
+}
+#room-status { color: #ddd4ed; font-size: .8rem; margin: .7rem 0 0; }
+#room-status:empty { display: none; }
+.room-indicator {
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  margin: 0;
+  padding: .45rem .6rem;
+  border: 2px solid #9c7fbb;
+  background: #231932;
+  pointer-events: none;
+  font: .78rem Silkscreen, monospace;
+}
 @media (max-width: 400px) {
   .controls { grid-template-columns: 1fr; }
 }

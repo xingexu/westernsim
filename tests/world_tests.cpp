@@ -1,6 +1,9 @@
 #include "mesher.hpp"
 #include "player.hpp"
 #include "campus.hpp"
+#include "rigid_boxes.hpp"
+#include "remote_avatar.hpp"
+#include "water.hpp"
 
 #include <glm/geometric.hpp>
 #include <cmath>
@@ -123,6 +126,91 @@ void persistence() {
     std::filesystem::remove(path);
 }
 
+void rigidBodyDynamics() {
+    World world(16);
+    for (int z = 0; z < 16; ++z)
+        for (int x = 0; x < 16; ++x)
+            world.set({x,0,z},Block::concrete);
+    for (int y = 1; y < 4; ++y)
+        for (int z = 0; z < 16; ++z)
+            world.set({8,y,z},Block::concrete);
+
+    RigidBoxes boxes;
+    check(!boxes.spawn(world,{8.5f,2.f,5.5f}),"a box cannot spawn inside a wall");
+    check(boxes.spawn(world,{5.5f,3.f,5.5f}),"a box spawns in clear space");
+    Player player;
+    player.feet = {1.5f,1.f,5.7f};
+    bool bounced = false;
+    for (int i = 0; i < 360; ++i) {
+        boxes.step(world,player,player.feet);
+        const auto& box = boxes.bodies().front();
+        if (box.velocity.y > .5f) bounced = true;
+        check(box.position.y > 1.32f,"a falling box stays above the floor");
+    }
+    check(bounced && std::abs(boxes.bodies().front().position.y-1.34f) < .01f &&
+          boxes.bodies().front().rotation.w > .999f,"a flat drop bounces and comes to rest without spinning");
+
+    bool rotated = false, moved = false;
+    for (int i = 0; i < 240; ++i) {
+        const auto previous = player.feet;
+        player.step(world,{1,0,0},false,false);
+        boxes.step(world,player,previous);
+        const auto& box = boxes.bodies().front();
+        moved |= box.position.x > 6.f;
+        rotated |= std::abs(box.rotation.w) < .997f;
+        check(box.position.x < 8.f && box.position.y > 1.22f &&
+              std::abs(glm::dot(box.rotation,box.rotation)-1.f) < .0001f,
+              "a rotating box respects the wall and floor");
+    }
+    check(moved && rotated,"an off-center avatar impact translates and rotates the box");
+}
+
+void heightField() {
+    World world(16);
+    for (int z = 1; z < 15; ++z)
+        for (int x = 1; x < 15; ++x)
+            if (x != 9) world.set({x,3,z},Block::water);
+    Water water(world);
+    const auto height = [&](int x,int z) { return water.heights()[x+z*water.edge()]; };
+    water.step();
+    check(water.revision() == 0 && !water.splash({5.5f,9.f,8.5f},.1f),
+          "a calm pond stays at rest and ignores players above it");
+    check(water.splash({5.5f,3.5f,8.5f},.1f),"a swimmer displaces the surface");
+    water.step();
+    check(height(5,8) > .09f && height(8,8) == 0.f,"the displacement begins at the swimmer");
+    for (int i = 0; i < 40; ++i) water.step();
+    check(std::abs(height(8,8)) > .002f && height(9,8) == 0.f && height(10,8) == 0.f,
+          "waves travel over time and stay within their shoreline");
+    for (int i = 0; i < 1000; ++i) water.step();
+    check(height(5,8) == 0.f && height(8,8) == 0.f,"the damped height field settles");
+}
+
+void remoteInterpolation() {
+    RemoteAvatar remote;
+    Player a, b;
+    a.heading = 3.1f;
+    b.heading = -3.1f;
+    b.feet = {1,0,2};
+    b.stride = 2.5f;
+    remote.receive(a,.1);
+    remote.receive(b,.2);
+    const auto middle = remote.pose(.27);
+    check(middle && glm::distance(middle->feet,glm::vec3(.5f,0,1)) < .001f &&
+          std::abs(std::abs(middle->heading)-3.14159f) < .001f &&
+          std::abs(middle->stride-1.25f) < .001f,
+          "remote pose interpolates position, wraparound heading, and stride");
+    Player reset;
+    reset.feet = {50,0,50};
+    remote.receive(reset,.25);
+    const auto beforeReset = remote.pose(.35);
+    const auto afterReset = remote.pose(.38);
+    check(beforeReset && beforeReset->feet == b.feet && afterReset && afterReset->feet == reset.feet,
+          "a distant respawn cuts without interpolating through the world");
+    check(!remote.pose(3.),"a stale peer is hidden");
+    remote.clear();
+    check(!remote.pose(.38),"a departed peer is removed");
+}
+
 void campus() {
     const auto world = makeCampus();
     const auto spawn = world.spawn();
@@ -182,9 +270,12 @@ int main() {
     try {
         meshing();
         movementAndRaycasting();
+        rigidBodyDynamics();
+        heightField();
+        remoteInterpolation();
         persistence();
         campus();
-        std::cout << "Meshing, movement, persistence and campus checks passed.\n";
+        std::cout << "World, avatar, rigid-body, water, and interpolation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

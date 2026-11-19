@@ -1,8 +1,11 @@
+import { multiplayer } from "./multiplayer.js";
+
 (() => {
   const canvas = document.querySelector("#canvas");
   const launcher = document.querySelector("#launcher");
   const play = document.querySelector("#play");
   const status = document.querySelector("#status");
+  const online = multiplayer(canvas);
   let ready = false;
   let entered = false;
   let broken = false;
@@ -20,12 +23,14 @@
   window.Module = {
     canvas,
     westernSimFailed: fail,
+    westernSimSendPose: online.send,
     westernSimReady() {
       if (broken) return;
       ready = true;
       launcher.classList.add("ready");
       status.textContent = "Walk around campus and see its buildings from the outside.";
       play.disabled = false;
+      online.ready();
     },
     onAbort() { fail("The game could not start. Reload to try again."); },
   };

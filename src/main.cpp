@@ -1,6 +1,7 @@
 #include "hud.hpp"
 #include "renderer.hpp"
 #include "campus.hpp"
+#include "remote_avatar.hpp"
 
 #include "graphics.hpp"
 #include <GLFW/glfw3.h>
@@ -26,6 +27,9 @@
 #ifdef __EMSCRIPTEN__
 EM_JS(void, showBrowserError, (const char* message), { Module.westernSimFailed(UTF8ToString(message)); });
 EM_JS(void, showBrowserReady, (), { Module.westernSimReady(); });
+EM_JS(void, sendBrowserPose, (float x,float y,float z,float heading,float stride,float gait), {
+    if (Module.westernSimSendPose) Module.westernSimSendPose(x,y,z,heading,stride,gait);
+});
 #endif
 
 namespace {
@@ -120,8 +124,9 @@ void checkGraphics() {
 }
 
 RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const World& world, const Camera& camera,
-                      const Player& player, float time, HudState& state) {
-    state.stats = renderer.draw(camera,player,width,height,time);
+                      const Player& player, float time, HudState& state, const std::vector<RigidBox>& boxes = {},
+                      const Water* water = nullptr, const std::optional<Player>& peer = {}) {
+    state.stats = renderer.draw(camera,player,width,height,time,boxes,water,peer);
     hud.draw(width,height,world,camera,state);
     return state.stats;
 }
@@ -227,6 +232,15 @@ public:
 
 #ifdef __EMSCRIPTEN__
     void requestCapture() { cursor(true); }
+    void receivePeer(glm::vec3 feet,float heading,float stride,float gait) {
+        Player pose;
+        pose.feet = feet;
+        pose.heading = heading;
+        pose.stride = stride;
+        pose.gait = gait;
+        peer_.receive(pose,glfwGetTime());
+    }
+    void disconnectPeer() { peer_.clear(); }
 #else
     void run() {
         while (!glfwWindowShouldClose(window_)) {
@@ -253,6 +267,10 @@ public:
         previous_ = now;
         handleKeys();
         if (!overlay()) simulate(elapsed);
+#ifdef __EMSCRIPTEN__
+        const auto p = player_.feet;
+        sendBrowserPose(p.x,p.y,p.z,std::remainder(player_.heading,2*pi),player_.stride,player_.gait);
+#endif
         int width, height;
         glfwGetFramebufferSize(window_,&width,&height);
         if (width == 0 || height == 0) return false;
@@ -267,7 +285,7 @@ public:
             fpsTime_ = 0;
             fpsFrames_ = 0;
         }
-        drawFrame(renderer_,hud_,width,height,world_,camera,player_,float(now),state_);
+        drawFrame(renderer_,hud_,width,height,world_,camera,player_,float(now),state_,boxes_.bodies(),&water_,peer_.pose(now));
 #ifndef __EMSCRIPTEN__
         glfwSwapBuffers(window_);
 #endif
@@ -279,7 +297,10 @@ private:
     Renderer& renderer_;
     Hud& hud_;
     const World world_ = makeCampus();
+    Water water_{world_};
     Player player_;
+    RigidBoxes boxes_;
+    RemoteAvatar peer_;
     Orbit orbit_;
     HudState state_;
     std::array<bool,GLFW_KEY_LAST+1> keys_{};
@@ -290,6 +311,7 @@ private:
     double mouseX_ = 0, mouseY_ = 0;
 #endif
     double accumulator_ = 0, toastUntil_ = 0;
+    double wakeCooldown_ = 0;
     double fpsTime_ = 0, previous_ = 0;
     int fpsFrames_ = 0;
     std::string toast_;
@@ -318,6 +340,7 @@ private:
         orbit_ = {};
         player_.heading = -orbit_.yaw;
         accumulator_ = 0;
+        wakeCooldown_ = 0;
         jumpQueued_ = false;
     }
 
@@ -359,6 +382,12 @@ private:
             if (keys_[GLFW_KEY_R]) resetPlayer();
             if (keys_[GLFW_KEY_C]) orbit_.overhead = !orbit_.overhead;
             if (keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
+            if (keys_[GLFW_KEY_B] && captured_) {
+                const auto origin = player_.feet+glm::vec3(0,1.1f,0);
+                const auto direction = orbit_.horizontal();
+                if (raycast(world_,origin,direction,1.6f) || !boxes_.spawn(world_,origin+direction*1.6f))
+                    announce("Need clear space for a box");
+            }
         }
         keys_.fill(false);
     }
@@ -376,7 +405,16 @@ private:
         while (accumulator_ >= physicsStep) {
             const bool inWater = world_.get(glm::ivec3(glm::floor(player_.feet + glm::vec3(0,.25f,0)))) == Block::water;
             const bool jump = jumpQueued_ || (captured_ && inWater && held(GLFW_KEY_SPACE));
+            const auto previousFeet = player_.feet;
+            const float verticalSpeed = player_.velocity.y;
             player_.step(world_,wish,held(GLFW_KEY_LEFT_SHIFT) || held(GLFW_KEY_RIGHT_SHIFT),jump);
+            boxes_.step(world_,player_,previousFeet);
+            wakeCooldown_ -= physicsStep;
+            if (wakeCooldown_ <= 0. &&
+                (glm::distance(player_.feet,previousFeet) > .018f || jump) &&
+                water_.splash(player_.feet,verticalSpeed < -3.f ? .13f : .055f))
+                wakeCooldown_ = .115;
+            water_.step();
             jumpQueued_ = false;
             accumulator_ -= physicsStep;
         }
@@ -424,6 +462,12 @@ EMSCRIPTEN_KEEPALIVE void westernsim_capture() {
 }
 EMSCRIPTEN_KEEPALIVE void westernsim_look(float dx, float dy) {
     if (browserGame) browserGame->look(dx,dy);
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_remote(float x,float y,float z,float heading,float stride,float gait) {
+    if (browserGame) browserGame->receivePeer({x,y,z},heading,stride,gait);
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_remote_clear() {
+    if (browserGame) browserGame->disconnectPeer();
 }
 }
 

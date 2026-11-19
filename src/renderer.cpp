@@ -235,26 +235,40 @@ struct Renderer::Data {
     Program present{shaders::skyVertex, shaders::pixelFragment};
     const GLint worldView = world.uniform("viewProjection"), worldModel = world.uniform("model");
     const GLint worldLight = world.uniform("lightMatrix"), worldEye = world.uniform("eye");
-    const GLint worldTime = world.uniform("time");
+    const GLint worldCrate = world.uniform("isCrate");
     const GLint skyInverse = sky.uniform("inverseViewProjection"), skyEye = sky.uniform("eye");
     const GLint skyTime = sky.uniform("time"), depthModel = depth.uniform("model");
     const GLint depthLight = depth.uniform("lightMatrix");
     const GLint avatarTransform = avatar.uniform("transform");
     GLuint emptyVao = 0;
     GLuint shadowBuffer = 0, shadowMap = 0;
+    GLuint waveMap = 0;
+    int waveEdge = 1;
+    std::uint64_t waveRevision = 0;
     std::vector<GpuMesh> chunks;
     std::array<GpuMesh,avatarPartCount> avatarMeshes;
+    GpuMesh crate;
     PixelFrame pixels;
     RenderStats totals;
 
     Data() {
         for (std::size_t i = 0; i < avatarMeshes.size(); ++i)
             avatarMeshes[i].upload(westernAvatarMesh(static_cast<AvatarPart>(i)));
+        World crateWorld(chunkSize);
+        crateWorld.set({0,0,0},Block::planks);
+        crate.upload(meshChunk(crateWorld,crateWorld.chunks().front()));
         world.use();
         vector(world.uniform("lightDirection"), sun);
         glUniform3fv(world.uniform("palette[0]"), static_cast<GLsizei>(colors.size()),
                      glm::value_ptr(colors.front()));
         glUniform1i(world.uniform("shadowMap"), 0);
+        glUniform1i(world.uniform("waveMap"), 1);
+        glGenTextures(1,&waveMap);
+        glBindTexture(GL_TEXTURE_2D,waveMap);
+        const float calm = 0.f;
+        glTexImage2D(GL_TEXTURE_2D,0,GL_R32F,1,1,0,GL_RED,GL_FLOAT,&calm);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
         sky.use();
         vector(sky.uniform("lightDirection"), sun);
         present.use();
@@ -285,7 +299,22 @@ struct Renderer::Data {
     ~Data() {
         glDeleteFramebuffers(1, &shadowBuffer);
         glDeleteTextures(1, &shadowMap);
+        glDeleteTextures(1, &waveMap);
         glDeleteVertexArrays(1, &emptyVao);
+    }
+
+    void bindWaves(const Water* water) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D,waveMap);
+        if (water && waveEdge != water->edge()) {
+            waveEdge = water->edge();
+            waveRevision = water->revision();
+            glTexImage2D(GL_TEXTURE_2D,0,GL_R32F,waveEdge,waveEdge,0,GL_RED,GL_FLOAT,water->heights().data());
+        } else if (water && waveRevision != water->revision()) {
+            waveRevision = water->revision();
+            glTexSubImage2D(GL_TEXTURE_2D,0,0,0,waveEdge,waveEdge,GL_RED,GL_FLOAT,water->heights().data());
+        }
+        glActiveTexture(GL_TEXTURE0);
     }
 
     void recount() {
@@ -313,11 +342,26 @@ void Renderer::rebuild(const World& world, Meshing mode) {
     d.recount();
 }
 
-RenderStats Renderer::draw(const Camera& camera, const Player& player, int width, int height, float time) {
+RenderStats Renderer::draw(const Camera& camera, const Player& player, int width, int height, float time,
+                           const std::vector<RigidBox>& boxes, const Water* water,
+                           const std::optional<Player>& peer) {
     auto& d = *data_;
     const glm::mat4 identity{1.f};
     const auto viewProjection = camera.projection * camera.view;
     const auto pose = westernAvatarPose(player);
+    const auto peerPose = peer ? westernAvatarPose(*peer) : decltype(westernAvatarPose(player)){};
+    const auto drawAvatar = [&](const auto& transforms, GLint uniform, const glm::mat4& projection) {
+        for (std::size_t i = 0; i < transforms.size(); ++i) {
+            matrix(uniform,projection*transforms[i]);
+            d.avatarMeshes[i].draw();
+        }
+    };
+    const auto boxModel = [](const RigidBox& box) {
+        const auto rotation = glm::mat4_cast(box.rotation);
+        auto model = glm::scale(rotation,2.f*boxHalfSize);
+        model[3] = glm::vec4(box.position-glm::mat3(rotation)*boxHalfSize,1.f);
+        return model;
+    };
     const glm::vec3 lightFocus = glm::floor(player.feet * 4.f) * .25f;
     const auto lightMatrix = glm::ortho(-42.f,42.f,-42.f,42.f,1.f,140.f) *
                              glm::lookAt(lightFocus+sun*70.f,lightFocus,{0,1,0});
@@ -333,9 +377,11 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, int width
     matrix(d.depthModel, identity);
     for (const auto& chunk : d.chunks)
         if (chunk.count && light.intersects(chunk.low,chunk.high)) chunk.draw();
-    for (std::size_t i = 0; i < pose.size(); ++i) {
-        matrix(d.depthModel, pose[i]);
-        d.avatarMeshes[i].draw();
+    drawAvatar(pose,d.depthModel,identity);
+    if (peer) drawAvatar(peerPose,d.depthModel,identity);
+    for (const auto& box : boxes) {
+        matrix(d.depthModel,boxModel(box));
+        d.crate.draw();
     }
 
     d.pixels.bind(width,height);
@@ -352,13 +398,14 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, int width
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     d.world.use();
+    d.bindWaves(water);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, d.shadowMap);
     matrix(d.worldView, viewProjection);
     matrix(d.worldLight, lightMatrix);
     matrix(d.worldModel, identity);
     vector(d.worldEye, camera.eye);
-    glUniform1f(d.worldTime, time);
+    glUniform1i(d.worldCrate,0);
 
     const Frustum frustum{viewProjection};
     RenderStats stats = d.totals;
@@ -369,11 +416,16 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, int width
         ++stats.chunks;
         stats.triangles += chunk.count / 3;
     }
-    d.avatar.use();
-    for (std::size_t i = 0; i < pose.size(); ++i) {
-        matrix(d.avatarTransform, viewProjection*pose[i]);
-        d.avatarMeshes[i].draw();
+    if (!boxes.empty()) {
+        glUniform1i(d.worldCrate,1);
+        for (const auto& box : boxes) {
+            matrix(d.worldModel,boxModel(box));
+            d.crate.draw();
+        }
     }
+    d.avatar.use();
+    drawAvatar(pose,d.avatarTransform,viewProjection);
+    if (peer) drawAvatar(peerPose,d.avatarTransform,viewProjection);
     glBindFramebuffer(GL_FRAMEBUFFER,0);
     glViewport(0,0,width,height);
     glDisable(GL_DEPTH_TEST);

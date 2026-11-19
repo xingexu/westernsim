@@ -173,7 +173,7 @@ void help(Canvas& canvas, float w, float h) {
         {"F1","Diagnostics"},
 #endif
         {"R","Return to UC Hill"}, {"ESC","Release / capture cursor"},
-        {"M","Campus map"}, {"C","Street / overhead view"}
+        {"M","Campus map"}, {"C","Street / overhead view"}, {"B","Spawn a box"}
     };
     for (std::size_t i = 0; i < std::size(controls); ++i) {
         const float col = x + 28 + 203 * (i % 2);

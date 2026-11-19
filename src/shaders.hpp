@@ -10,12 +10,16 @@ layout(location=1) in vec3 normal;
 layout(location=2) in float material;
 uniform mat4 viewProjection, model, lightMatrix;
 out vec3 point, face;
+out vec3 localPosition;
+flat out vec3 localNormal;
 out vec4 shadowPoint;
 flat out int tile;
 void main() {
     vec4 p = model * vec4(position, 1);
     point = p.xyz;
     face = normalize(mat3(model) * normal);
+    localPosition = position;
+    localNormal = normal;
     tile = int(material);
     shadowPoint = lightMatrix * p;
     gl_Position = viewProjection * p;
@@ -25,15 +29,23 @@ void main() {
 inline constexpr char worldFragment[] = WESTERNSIM_GLSL R"GLSL(
 #ifdef GL_ES
 precision highp sampler2DShadow;
+precision highp sampler2D;
 #endif
 in vec3 point, face;
+in vec3 localPosition;
+flat in vec3 localNormal;
 in vec4 shadowPoint;
 flat in int tile;
 out vec4 color;
 uniform vec3 eye, lightDirection, clockCenter;
 uniform vec3 palette[57];
-uniform float time;
 uniform sampler2DShadow shadowMap;
+uniform sampler2D waveMap;
+uniform bool isCrate;
+
+float surfaceHeight(ivec2 cell) {
+    return texelFetch(waveMap,clamp(cell,ivec2(0),textureSize(waveMap,0)-1),0).r;
+}
 
 float hash(vec3 p) {
     p = fract(p * .1031);
@@ -150,6 +162,19 @@ void main() {
         albedo *= 1.0 - grainLine * .14;
         if (n.y > .5 && uv.x < .025) albedo *= .79;
     }
+    if (isCrate) {
+        vec3 p = floor(localPosition*32.)/32.;
+        vec2 board = abs(localNormal.y) > .5 ? p.xz : abs(localNormal.x) > .5 ? p.zy : p.xy;
+        float frame = edgeDistance(board);
+        float seam = fract(board.y*4.);
+        float grainLine = sin(board.x*25.+sin(board.y*170.)*.56);
+        vec3 timber = vec3(.72,.46,.26) * (.88+grainLine*.057+.13*hash(vec3(floor(board.y*4.),3.,8.)));
+        timber *= seam < .095 ? .69 : 1.;
+        if (frame < .11 || abs(board.x-board.y) < .068)
+            timber = vec3(.54,.33,.18) * (.93+grainLine*.06);
+        if (frame < .03) timber *= .74;
+        albedo = timber;
+    }
     if (tile == 9) albedo = masonry(face,albedo,abs(n.y) > .5 ? vec2(1.32) : vec2(1.2,1.65),.021);
     if (tile == 10) albedo = masonry(face,albedo,vec2(1.6,3.3),.045);
     if (tile == 14) albedo = masonry(face,albedo,vec2(1.05,2.12),.033);
@@ -219,12 +244,20 @@ void main() {
         lit = frame ? vec3(.37,.29,.25) : mix(vec3(.99,.57,.21),vec3(1.,.84,.48),uv.y);
     }
     if (tile == 12) {
-        vec2 flow = face+vec2(floor(time*5.)*.14,-floor(time*4.)*.14);
-        float swell = sin(flow.y*3.+sin(flow.x*.72)*1.6);
-        float sparkle = hash(vec3(floor(flow*vec2(.9,4.)),4.));
-        lit = mix(vec3(.23,.44,.53),vec3(.45,.63,.68),floor((1.-max(0.,view.y))*5.)*.2);
-        if (swell > .72 && sparkle > .56) lit += vec3(.14,.17,.16);
-        if (swell < -.75 && sparkle < .58) lit *= .88;
+        vec3 surface = n;
+        float lift = 0.;
+        if (n.y > .5) {
+            ivec2 p = ivec2(floor(point.xz));
+            vec2 gradient = vec2(surfaceHeight(p+ivec2(1,0))-surfaceHeight(p-ivec2(1,0)),
+                                 surfaceHeight(p+ivec2(0,1))-surfaceHeight(p-ivec2(0,1)));
+            surface = normalize(vec3(-gradient.x*3.5,1.,-gradient.y*3.5));
+            lift = surfaceHeight(p);
+        }
+        float reflection = floor((1.-max(0.,dot(view,surface)))*6.)/6.;
+        lit = mix(vec3(.23,.44,.53),vec3(.45,.63,.68),reflection);
+        lit *= .955+.09*hash(vec3(floor(face*vec2(1.4,2.7)),4.));
+        lit += vec3(.22,.28,.26)*clamp(lift*2.5, -.35,.8);
+        lit += vec3(.33,.32,.23)*pow(max(0.,dot(surface,halfway)),15.)*direct;
         lit *= .87 + .13*direct;
     }
     float distanceToEye = length(eye - point);

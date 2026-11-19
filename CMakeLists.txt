@@ -28,7 +28,8 @@ function(westernsim_warnings target)
     endif()
 endfunction()
 
-add_library(westernsim_world src/world.cpp src/campus.cpp src/scenery.cpp src/mesher.cpp src/player.cpp)
+add_library(westernsim_world src/world.cpp src/campus.cpp src/scenery.cpp src/mesher.cpp
+    src/player.cpp src/rigid_boxes.cpp src/water.cpp src/remote_avatar.cpp)
 target_include_directories(westernsim_world PUBLIC src)
 target_link_libraries(westernsim_world PUBLIC glm::glm)
 westernsim_warnings(westernsim_world)

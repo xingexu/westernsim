@@ -7,10 +7,11 @@
   <meta name="description" content="Take a pixel-art walk around Western University in London, Ontario.">
   <title>Western Sim</title>
   <link rel="stylesheet" href="./play.css">
-  <script src="./play.js" defer></script>
+  <script src="./play.js" type="module"></script>
 </head>
 <body>
   <canvas id="canvas" tabindex="0" aria-label="Western Sim game"></canvas>
+  <p id="room-indicator" class="room-indicator" hidden></p>
   <main id="launcher" class="launcher">
     <section class="card" aria-labelledby="title">
       <div class="brand">
@@ -29,8 +30,22 @@
         <div><dt>Campus map</dt><dd>M</dd></div>
         <div><dt>Sprint</dt><dd>Hold Shift</dd></div>
         <div><dt>Change view</dt><dd>C</dd></div>
+        <div><dt>Spawn box</dt><dd>B</dd></div>
         <div><dt>Release mouse</dt><dd>Esc</dd></div>
       </dl>
+      <details id="multiplayer" hidden>
+        <summary>Two-player room</summary>
+        <button id="create-room" type="button">Create room</button>
+        <form id="join-room">
+          <input id="room-code" aria-label="Room code" placeholder="Room code" maxlength="12" autocomplete="off" spellcheck="false">
+          <button type="submit">Join</button>
+        </form>
+        <div class="room-actions">
+          <button id="copy-invite" type="button" hidden>Copy invite</button>
+          <button id="leave-room" type="button" hidden>Leave</button>
+        </div>
+        <p id="room-status" role="status"></p>
+      </details>
       <noscript>Enable JavaScript to play Western Sim.</noscript>
     </section>
   </main>
