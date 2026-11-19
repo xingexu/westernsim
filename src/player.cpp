@@ -1,4 +1,5 @@
 #include "player.hpp"
+#include "scenery.hpp"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -16,15 +17,30 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
     if (delta == 0) return false;
     auto next = feet;
     next[axis] += delta;
-    const glm::ivec3 begin = glm::floor(next + low + epsilon);
-    const glm::ivec3 end = glm::floor(next + high - epsilon);
-    for (int y = begin.y; y <= end.y; ++y) {
+    const auto playerMin = next + low + epsilon;
+    const auto playerMax = next + high - epsilon;
+    const glm::ivec3 begin = glm::floor(playerMin);
+    const glm::ivec3 end = glm::floor(playerMax);
+    const auto clip = [&](glm::vec3 min, glm::vec3 max) {
+        if (delta > 0) next[axis] = std::min(next[axis], min[axis] - high[axis]);
+        else next[axis] = std::max(next[axis], max[axis] - low[axis]);
+    };
+    // A trunk can overlap the player while its anchor is below the player's feet.
+    for (int y = begin.y - treeTrunkCells + 1; y <= end.y; ++y) {
         for (int z = begin.z; z <= end.z; ++z) {
             for (int x = begin.x; x <= end.x; ++x) {
                 const glm::ivec3 cell{x,y,z};
-                if (!solid(world.get(cell))) continue;
-                if (delta > 0) next[axis] = std::min(next[axis], cell[axis] - high[axis]);
-                else next[axis] = std::max(next[axis], cell[axis] + 1.f - low[axis]);
+                const auto block = world.get(cell);
+                if (y >= begin.y && solid(block)) {
+                    clip(glm::vec3(cell),glm::vec3(cell)+1.f);
+                } else if (canopy(block)) {
+                    const auto size = treeTrunkSize(cell);
+                    const auto min = glm::vec3(cell) + glm::vec3(1.f-size.x,0,1.f-size.z)*.5f;
+                    const auto max = min+size;
+                    if (glm::all(glm::lessThanEqual(playerMin,max)) &&
+                        glm::all(glm::greaterThanEqual(playerMax,min)))
+                        clip(min,max);
+                }
             }
         }
     }

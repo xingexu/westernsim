@@ -24,6 +24,12 @@ void box(Mesh& mesh, glm::vec3 center, glm::vec3 size, Block block) {
 
 } // namespace
 
+glm::vec3 treeTrunkSize(glm::ivec3 anchor) {
+    const int variant = (anchor.x*31 + anchor.z*19)%5;
+    const float diameter = .19f + .045f*variant;
+    return {diameter,treeTrunkCells-.11f-.31f*(4-variant),diameter};
+}
+
 void appendScenery(Mesh& mesh, glm::ivec3 anchor, Block block) {
     const auto at = glm::vec3(anchor) + glm::vec3(.5f,0,.5f);
     const auto piece = [&](glm::vec3 center, glm::vec3 size, Block material) {
@@ -35,12 +41,11 @@ void appendScenery(Mesh& mesh, glm::ivec3 anchor, Block block) {
         const int pattern = anchor.x*31+anchor.z*19;
         const float flip = pattern%2 == 0 ? 1.f : -1.f;
         const float span = .64f + .11f*(pattern%5);
-        const float height = 1.65f + .31f*(pattern%5);
         const auto wood = pattern%7 == 1 ? Block::birch : Block::cedar;
-        const float diameter = .19f + .045f*(pattern%5);
-        box(mesh,at+glm::vec3(0,height*.5f,0),{diameter,height,diameter},wood);
+        const auto trunk = treeTrunkSize(anchor);
+        box(mesh,at+glm::vec3(0,trunk.y*.5f,0),trunk,wood);
         const auto crown = [&](glm::vec3 center, glm::vec3 size) {
-            box(mesh,at+center*span+glm::vec3(0,height,0),size*span,leaf);
+            box(mesh,at+center*span+glm::vec3(0,trunk.y,0),size*span,leaf);
         };
         crown({0,-.38f,0},{1.42f,.90f,1.5f});
         crown({0,.29f,-.22f},{2.50f,1.20f,2.1f});

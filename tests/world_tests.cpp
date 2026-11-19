@@ -86,6 +86,16 @@ void movementAndRaycasting() {
           "ray finds the first block and the placement face");
     check(!raycast(world, {3.5f,1.5f,4.5f}, {1,0,0}, 1), "ray respects reach");
     check(player.overlaps({4,1,4}) && !player.overlaps({5,1,4}), "placement protects the avatar");
+
+    world.set({8,1,4},Block::canopyGreen);
+    Player walker;
+    walker.feet = {7.5f,1.f,4.5f};
+    for (int i = 0; i < 240; ++i) walker.step(world,{1,0,0},true,i == 60);
+    check(std::abs(walker.feet.x-(8.5f-.185f-playerRadius)) < .001f,
+          "the visible tree trunk blocks walking and jumping");
+    walker.feet = {7.5f,1.f,4.14f};
+    for (int i = 0; i < 120; ++i) walker.step(world,{1,0,0},false,false);
+    check(walker.feet.x > 9.f, "a walker can pass beside the trunk within its anchor cell");
 }
 
 void persistence() {
