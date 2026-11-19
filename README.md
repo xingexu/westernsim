@@ -72,7 +72,7 @@ The exported mesh is bundled. To refresh it, run `node tools/export_western_avat
 | Physics | Fixed 120 Hz gravity and voxel AABB collision, with one-block step-up and swimming. |
 | Campus data | Run-length encoded column heights, materials, roofs, and sparse bridge and tree locations. The game loads these into a read-only campus. |
 
-The CTest suite covers triangle counts, material splits, chunk seams, face winding, movement, camera raycasts, engine snapshot compatibility, the University Drive crossing, and exterior collision at Ontario Hall.
+The CTest suite covers triangle counts, material splits, chunk seams, face winding, movement, camera raycasts, engine snapshot compatibility, the University Drive crossing, and collision with building exteriors and tree trunks.
 
 ## Benchmark
 
@@ -80,14 +80,14 @@ Run `./build/westernsim --benchmark` in a desktop session (or under Xvfb on Linu
 
 | Meshing mode | World triangles | Mean camera-pass triangles | FPS |
 | --- | ---: | ---: | ---: |
-| Exposed faces | 5,064,866 | 391,848.3 | 15.6 |
-| Greedy | 1,599,534 | 93,354.1 | 32.0 |
+| Exposed faces | 5,064,850 | 391,848.3 | 10.8 |
+| Greedy | 1,599,512 | 93,354.1 | 25.8 |
 
 Greedy meshing reduced world triangles by **68.4%** in the [captured Release benchmark](docs/benchmark.txt) on Ubuntu with Mesa llvmpipe CPU rendering.
 
 **Résumé bullet**
 
-> Built a C++17 voxel engine that runs on OpenGL and WebGL 2, with fixed-step collision and a 1.79 km-wide Western University campus. Reduced world triangles by 68.4% with greedy meshing and increased measured 720p output from 15.6 to 32.0 FPS on Mesa llvmpipe.
+> Built a C++17 voxel engine that runs on OpenGL and WebGL 2, with fixed-step collision and a 1.79 km-wide Western University campus. Reduced world triangles by 68.4% with greedy meshing and increased measured 720p output from 10.8 to 25.8 FPS on Mesa llvmpipe.
 
 ## Credits
 
