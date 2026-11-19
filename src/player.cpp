@@ -51,32 +51,48 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
 
 } // namespace
 
+void Player::toggleFlight() {
+    flying = !flying;
+    grounded = false;
+    velocity.y = 0.f;
+}
+
 void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     constexpr auto dt = static_cast<float>(physicsStep);
-    const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.25f,0)))) == Block::water;
-    const float speed = swimming ? 6.25f : sprint ? 17.5f : 12.f;
+    const bool swimming = !flying && world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.25f,0)))) == Block::water;
+    const float speed = flying ? (sprint ? 34.f : 23.f) : swimming ? 6.25f : sprint ? 17.5f : 12.f;
+    if (!flying) wish.y = 0.f;
     const float amount = glm::dot(wish, wish);
     if (amount > 1.f) wish /= std::sqrt(amount);
     velocity.x = wish.x * speed;
     velocity.z = wish.z * speed;
     for (const int axis : {0, 2}) {
         const auto before = feet;
-        if (move(world, feet, axis, velocity[axis] * dt) && grounded && !jump) {
+        float delta = velocity[axis]*dt;
+        if (flying)
+            delta = std::clamp(delta,std::min(0.f,playerRadius-feet[axis]),
+                               std::max(0.f,world.edge()-playerRadius-feet[axis]));
+        if (move(world, feet, axis, delta) && grounded && !jump) {
             auto raised = before;
             if (!move(world, raised, 1, 1.01f) &&
-                !move(world, raised, axis, velocity[axis] * dt)) {
+                !move(world, raised, axis, delta)) {
                 move(world, raised, 1, -.08f);
                 feet = raised;
             }
         }
     }
-    if (grounded && jump) velocity.y = 4.8f;
-    if (swimming) velocity.y = jump ? 2.5f : std::max(velocity.y - 3.5f * dt, -1.f);
-    else velocity.y = std::max(velocity.y - 11.f * dt, -15.f);
-    const bool verticalContact = move(world, feet, 1, velocity.y * dt);
-    grounded = verticalContact && velocity.y < 0;
+    if (flying) {
+        velocity.y = wish.y * 15.f;
+    } else {
+        if (grounded && jump) velocity.y = 4.8f;
+        if (swimming) velocity.y = jump ? 2.5f : std::max(velocity.y - 3.5f * dt, -1.f);
+        else velocity.y = std::max(velocity.y - 11.f * dt, -15.f);
+    }
+    const float rise = flying ? std::min(velocity.y*dt,std::max(0.f,flightCeiling-feet.y)) : velocity.y*dt;
+    const bool verticalContact = move(world,feet,1,rise);
+    grounded = !flying && verticalContact && velocity.y < 0;
     if (verticalContact) velocity.y = 0;
-    const bool moving = amount > .001f;
+    const bool moving = wish.x*wish.x + wish.z*wish.z > .001f;
     gait += ((moving && grounded ? 1.f : 0.f) - gait) * 12.f * dt;
     if (moving) {
         const float target = std::atan2(-wish.x, -wish.z);

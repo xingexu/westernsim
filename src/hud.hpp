@@ -14,7 +14,7 @@ struct HudState {
     float fps = 0.f;
     float heading = 0.f;
     glm::vec2 position{};
-    bool guide = false, map = false, diagnostics = false;
+    bool guide = false, map = false, diagnostics = false, flying = false;
     Meshing meshing = Meshing::greedy;
 };
 

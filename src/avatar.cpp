@@ -58,7 +58,7 @@ std::array<glm::mat4, avatarPartCount> westernAvatarPose(const Player& player) {
     constexpr float scale = playerHeight / westernAvatar::height;
     const float step = std::sin(player.stride) * player.gait;
     const float lift = std::abs(step) * .7f * scale;
-    const float jump = player.grounded ? 0.f : std::clamp(player.velocity.y/6.f,0.f,1.f);
+    const float jump = player.grounded || player.flying ? 0.f : std::clamp(player.velocity.y/6.f,0.f,1.f);
     // The portfolio model faces +Z. Western Sim's player heading faces -Z at zero.
     auto root = glm::translate(glm::mat4(1),player.feet + glm::vec3(0,lift,0));
     root = glm::scale(glm::rotate(root,player.heading+pi,{0,1,0}),glm::vec3(scale));

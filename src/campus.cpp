@@ -10,15 +10,25 @@ namespace {
 
 constexpr std::array groundMaterials{
     Block::grass, Block::water, Block::sand, Block::pavement, Block::limestone,
-    Block::concrete, Block::pavement, Block::limestone, Block::grass, Block::pavement, Block::grass
+    Block::concrete, Block::parking, Block::limestone, Block::playingField, Block::pavement, Block::grass,
+    Block::track, Block::turf, Block::courtSand, Block::pavers
 };
 constexpr std::array facadeMaterials{
     Block::air, Block::houseWall, Block::academicWall, Block::modernWall, Block::heritageWall,
     Block::heritageWall, Block::libraryWall, Block::unionWall, Block::residenceWall,
     Block::galleryWall, Block::saugeenWall, Block::delawareWall, Block::iveyWall,
-    Block::thamesWall, Block::medwayWall, Block::recreationWall, Block::modernWall,
+    Block::thamesWall, Block::medwayWall, Block::recreationWall, Block::hospitalWall,
     Block::socialWall, Block::naturalWall, Block::physicsWall, Block::westernScienceWall,
-    Block::alumniWall, Block::huronWall, Block::elginWall
+    Block::alumniWall, Block::huronWall, Block::elginWall,
+    Block::fimsWall, Block::musicWall, Block::engineeringWall
+};
+constexpr std::array roofMaterials{
+    Block::air, Block::slate, Block::gravelRoof, Block::membraneRoof, Block::slate, Block::slate,
+    Block::gravelRoof, Block::membraneRoof, Block::membraneRoof, Block::slate, Block::gravelRoof,
+    Block::gravelRoof, Block::metalRoof, Block::gravelRoof, Block::slate, Block::membraneRoof,
+    Block::membraneRoof, Block::gravelRoof, Block::membraneRoof, Block::gravelRoof, Block::membraneRoof,
+    Block::metalRoof, Block::gravelRoof, Block::metalRoof, Block::membraneRoof, Block::metalRoof,
+    Block::membraneRoof
 };
 
 std::uint32_t hash(int x, int z) {
@@ -156,7 +166,7 @@ World makeCampus() {
             if (facade) {
                 const auto wall = facadeMaterials[facade];
                 for (int y = ground+1; y < roof; ++y) world.set({x,y,z},wall);
-                world.set({x,roof,z}, facade == 8 ? Block::concrete : Block::slate);
+                world.set({x,roof,z},roofMaterials[facade]);
             } else if (surface == 0 && hash(x,z)%1000 < 5) {
                 world.set({x,ground+1,z},Block::wildflowers);
             }

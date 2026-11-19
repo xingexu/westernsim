@@ -25,6 +25,8 @@ enum class Block : std::uint8_t {
     galleryWall, wildflowers,
     delawareWall, iveyWall, thamesWall, medwayWall, recreationWall, saugeenWall,
     socialWall, naturalWall, physicsWall, westernScienceWall, alumniWall, huronWall, elginWall,
+    parking, playingField, track, turf, courtSand, pavers, membraneRoof, gravelRoof, metalRoof,
+    fimsWall, musicWall, engineeringWall, hospitalWall,
     count
 };
 

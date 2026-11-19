@@ -43,6 +43,7 @@ With a multi-config generator such as Visual Studio, run `build/Release/westerns
 | --- | --- |
 | **Arrow keys** or **WASD** / mouse | Walk / orbit the third-person camera |
 | Hold **Shift** / **Space** | Sprint while held / jump or swim upward |
+| **F** / **Space** / **Q** | Toggle flight / rise / descend |
 | **C** | Switch between street level and overhead |
 | **M** / **Tab** | Campus map / field guide |
 | **B** | Spawn a wooden box in front of you. Walk into it to push it |
@@ -51,7 +52,7 @@ With a multi-config generator such as Visual Studio, run `build/Release/westerns
 
 ## Campus
 
-The `896 × 64 × 896` voxel grid covers a **1.792 km × 1.792 km** area at two metres per cell. It uses surveyed terrain, building footprints, roads, footpaths, trees, and water from the [City of London](https://london.ca/government/open-data), with [OpenStreetMap](https://www.openstreetmap.org/copyright) geometry for crossings and additional paths and buildings. Google Maps satellite imagery and Street View were visual references for the campus layout and streetscape. The game renders its own geometry and textures.
+The `896 × 64 × 896` voxel grid covers a **1.792 km × 1.792 km** area at two metres per cell. It uses building footprints, roads, footpaths, trees, and water from the [City of London](https://london.ca/government/open-data), with [OpenStreetMap](https://www.openstreetmap.org/copyright) geometry for crossings, paths, sports surfaces, and additional buildings. Bare-earth LiDAR is blended with surveyed contours near the river and the University Drive bridge deck is sampled separately from LiDAR. Google Maps Terrain, satellite imagery, and Street View informed the campus layout, roof materials, and streetscape. The game renders its own geometry and textures.
 
 The north-up campus map follows your position and lists 20 landmarks. Names float above these landmarks, five additional buildings, University Bridge, and UC Hill as you approach. The [NRCan high-resolution elevation mosaic](https://open.canada.ca/data/en/dataset/0fe65119-e96e-4a57-8bfe-9d9245fba06b) supplies LiDAR roof profiles, including Weldon Library's stepped massing and the locations and heights of the two college towers. Exterior references inform the pixel-art façades, and some footprints use estimated heights where the LiDAR coverage and mapped outlines differ. Buildings are solid so you can walk around their exteriors.
 
