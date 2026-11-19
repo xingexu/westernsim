@@ -261,8 +261,8 @@ def surfaces(layers, osm, ground, dsm, dtm):
         if radius and not tags.get("bridge") and tags.get("tunnel") != "yes":
             mapped = {"asphalt":ROAD,"concrete":WALK,"concrete:plates":WALK,"paving_stones":PAVERS,
                       "bricks":PAVERS,"ground":TRAIL,"dirt":TRAIL,"crushed_limestone":TRAIL}
-            value = STEPS if highway == "steps" else mapped.get(
-                tags.get("surface"),TRAIL if highway == "path" else WALK)
+            fallback = {"steps":STEPS,"path":TRAIL}.get(highway,WALK)
+            value = mapped.get(tags.get("surface"),fallback)
             paint(surface,LineString(points).buffer(radius),value,unpaved)
     for layer, value, radius in [(43,TRAIL,1.1),(11,WALK,1.4),(34,WALK,1.55),(38,STEPS,1.6)]:
         eligible = np.isin(surface,[GRASS,WOODS,TRAIL,FIELD])
