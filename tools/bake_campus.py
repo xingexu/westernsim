@@ -15,7 +15,7 @@ from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 from shapely import contains_xy, make_valid, prepare
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
-from shapely.ops import unary_union
+from shapely.ops import substring, unary_union
 
 EDGE, CELL = 896, 2
 WEST, NORTH = 476800, 4762550
@@ -219,10 +219,19 @@ def surfaces(layers, osm, ground):
     # Road and path polygons were recorded over the same surveyed river surface.
     # Only tagged river crossings receive an elevated deck.
     water = surface == WATER
+    bridge_ways = []
+    approach_ways = {}
     for ident, tags, points in osm:
-        if tags.get("bridge") != "yes":
-            continue
         highway = tags.get("highway")
+        if not highway:
+            continue
+        if tags.get("bridge") == "yes":
+            bridge_ways.append((ident,highway,points))
+        elif not tags.get("bridge") and tags.get("tunnel") != "yes":
+            approach_ways.setdefault((highway,points[0]),[]).append(points)
+            approach_ways.setdefault((highway,points[-1]),[]).append(points[::-1])
+    surveyed_ground = ground.copy()
+    for ident, highway, points in bridge_ways:
         width = {"tertiary":5.5,"secondary":6.5,"cycleway":2.0,"footway":1.35,"residential":4}.get(highway)
         if width is None:
             continue
@@ -233,7 +242,7 @@ def surfaces(layers, osm, ground):
         for x,z in [points[0],points[-1]]:
             i,j = int((x-WEST)/CELL),int((NORTH-z)/CELL)
             if 0 <= i < EDGE and 0 <= j < EDGE:
-                patch = ground[max(0,j-3):j+4,max(0,i-3):i+4]
+                patch = surveyed_ground[max(0,j-3):j+4,max(0,i-3):i+4]
                 ends.append(int(np.quantile(patch,.82)))
         if not ends:
             continue
@@ -245,6 +254,16 @@ def surfaces(layers, osm, ground):
         over_water = cells & water[rect]
         bridges[rect][over_water] = base
         ground[rect][over_water] = np.minimum(ground[rect][over_water],base-1)
+        # Continue the grade along the mapped approach. Each tread spans two
+        # cells so the bank meets the bridge in walkable single-cell steps.
+        for x,z in (points[0],points[-1]):
+            for approach in approach_ways.get((highway,(x,z)),[]):
+                line = substring(LineString(approach),0,6*CELL)
+                ramp, ramp_cells = mask(line.buffer(max(width, CELL),cap_style="flat"))
+                dry_cells = ramp_cells & ~water[ramp] & (surface[ramp] != BRIDGE)
+                distance = np.hypot(XX[ramp]-x,ZZ[ramp]-z)
+                level = base-1-np.floor(distance/(2*CELL)).astype(int)
+                ground[ramp][dry_cells] = np.maximum(ground[ramp][dry_cells],level[dry_cells])
         if ident == 142399227:
             print(f"University Drive deck elevation: cell {base}")
     return surface, bridges

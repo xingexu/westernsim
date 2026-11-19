@@ -123,6 +123,11 @@ void campus() {
     check(world.get({bridge.x,6,bridge.y}) == Block::water &&
           world.get({bridge.x,9,bridge.y}) == Block::pavement &&
           world.get({bridge.x,10,bridge.y}) == Block::air, "University Drive crosses above the Thames");
+    Player bridgeWalker;
+    bridgeWalker.feet = {706.5f,10.f,423.5f};
+    for (int i = 0; i < 300; ++i) bridgeWalker.step(world,{-1,0,0},false,false);
+    check(bridgeWalker.feet.x < 701.f && std::abs(bridgeWalker.feet.y-10.f) < .001f,
+          "University Drive's north sidewalk is walkable onto the deck from the east");
     const auto top = [&](glm::ivec2 place) {
         return raycast(world,{place.x+.5f,63.f,place.y+.5f},{0,-1,0},63.f);
     };
