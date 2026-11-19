@@ -15,8 +15,10 @@ constexpr std::array groundMaterials{
 constexpr std::array facadeMaterials{
     Block::air, Block::houseWall, Block::academicWall, Block::modernWall, Block::heritageWall,
     Block::heritageWall, Block::libraryWall, Block::unionWall, Block::residenceWall,
-    Block::galleryWall, Block::residenceWall, Block::residenceWall, Block::modernWall,
-    Block::academicWall, Block::houseWall, Block::modernWall, Block::modernWall
+    Block::galleryWall, Block::saugeenWall, Block::delawareWall, Block::iveyWall,
+    Block::thamesWall, Block::medwayWall, Block::recreationWall, Block::modernWall,
+    Block::socialWall, Block::naturalWall, Block::physicsWall, Block::westernScienceWall,
+    Block::alumniWall, Block::huronWall, Block::elginWall
 };
 
 std::uint32_t hash(int x, int z) {
@@ -39,47 +41,47 @@ void box(World& world, glm::ivec3 low, glm::ivec3 high, Block material) {
                 world.set({x,y,z},material);
 }
 
-void buildTower(World& world, glm::ivec2 at, bool clock) {
+void buildTower(World& world, glm::ivec2 at, int crown, bool clock) {
     const int x = at.x, z = at.y;
-    const int base = roofHeight(world,at);
-    const int top = base + 9;
+    const int top = crown - (clock ? 5 : 1);
     constexpr int radius = 2;
-    for (int y = base-2; y <= top; ++y) {
-        for (int dz = -radius; dz <= radius; ++dz) {
-            for (int dx = -radius; dx <= radius; ++dx) {
-                const bool edge = std::abs(dx) == radius || std::abs(dz) == radius;
-                const bool corner = std::abs(dx) == radius && std::abs(dz) == radius;
-                const int across = std::abs(dx) == radius ? dz : dx;
-                auto block = Block::heritageWall;
-                if (corner || y == base+2 || y >= top-1) block = Block::limestone;
-                if (edge && std::abs(across) <= 1 && (y == base+3 || y == base+4))
-                    block = Block::lancet;
+    for (int dz = -radius; dz <= radius; ++dz) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            const bool edge = std::abs(dx) == radius || std::abs(dz) == radius;
+            const bool corner = std::abs(dx) == radius && std::abs(dz) == radius;
+            const int across = std::abs(dx) == radius ? dz : dx;
+            int foundation = roofHeight(world,{x+dx,z+dz});
+            if (world.get({x+dx,foundation,z+dz}) == Block::slate) --foundation;
+            while (world.get({x+dx,foundation,z+dz}) == Block::heritageWall) --foundation;
+            for (int y = foundation+1; y <= top; ++y) {
+                auto block = Block::sandstone;
+                if (corner || y == top-4 || y == top) block = Block::limestone;
+                if (edge && across == 0 && y >= top-3 && y <= top-1) block = Block::lancet;
                 if (clock && edge && std::abs(across) <= 1 && std::abs(y-(top-3)) <= 1)
                     block = Block::clock;
+                if (dx == radius && dz == 0 && y <= foundation+2) block = Block::cedar;
                 world.set({x+dx,y,z+dz},block);
             }
         }
     }
-    box(world,{x-radius-1,top,z-radius-1},{x+radius+1,top,z+radius+1},Block::limestone);
-    for (const int dx : {-radius,radius})
-        for (const int dz : {-radius,radius})
-            box(world,{x+dx,top+1,z+dz},{x+dx,top+2,z+dz},Block::limestone);
     if (clock) {
-        for (int i = 0; i <= 2; ++i)
-            box(world,{x-2+i,top+1+i*2,z-2+i},{x+2-i,top+2+i*2,z+2-i},Block::copper);
-        box(world,{x,top+7,z},{x,top+8,z},Block::iron);
+        box(world,{x-1,top+1,z-1},{x+1,top+2,z+1},Block::copper);
+        box(world,{x,top+3,z},{x,crown,z},Block::copper);
+        for (const int dx : {-radius,radius})
+            for (const int dz : {-radius,radius})
+                box(world,{x+dx,top+1,z+dz},{x+dx,top+2,z+dz},Block::limestone);
+        world.set({x,crown+1,z},Block::iron);
         return;
     }
-    for (const int offset : {-2,0,2}) {
-        world.set({x+offset,top+1,z-radius-1},Block::limestone);
-        world.set({x+offset,top+1,z+radius+1},Block::limestone);
-        world.set({x-radius-1,top+1,z+offset},Block::limestone);
-        world.set({x+radius+1,top+1,z+offset},Block::limestone);
+    for (const int offset : {-radius,0,radius}) {
+        world.set({x+offset,top+1,z-radius},Block::limestone);
+        world.set({x+offset,top+1,z+radius},Block::limestone);
+        world.set({x-radius,top+1,z+offset},Block::limestone);
+        world.set({x+radius,top+1,z+offset},Block::limestone);
     }
-    box(world,{x,top+1,z},{x,top+4,z},Block::iron);
-    box(world,{x+1,top+3,z},{x+3,top+4,z},Block::flagWhite);
-    box(world,{x+1,top+3,z},{x+1,top+4,z},Block::flagRed);
-    box(world,{x+3,top+3,z},{x+3,top+4,z},Block::flagRed);
+    box(world,{x,top+1,z},{x,top+3,z},Block::iron);
+    box(world,{x+1,top+3,z},{x+2,top+3,z},Block::flagWhite);
+    world.set({x+1,top+3,z},Block::flagRed);
 }
 
 void finishExterior(World& world) {
@@ -123,6 +125,16 @@ glm::vec3 campusClockCenter(const World& world) {
     for (int y = worldHeight-1; y >= 0; --y)
         if (world.get({x,y,z+2}) == Block::clock) return {x+.5f,y-.5f,z+.5f};
     return {};
+}
+
+bool landmarkContainsColumn(const Landmark& landmark, glm::ivec2 column) {
+    const auto* end = survey::landmarkSpans + landmark.endSpan;
+    const auto* row = std::lower_bound(survey::landmarkSpans+landmark.firstSpan,end,column.y,
+        [](const survey::LandmarkSpan& span, int z) { return span.z < z; });
+    for (; row != end && row->z == column.y; ++row) {
+        if (column.x >= row->firstX && column.x < row->endX) return true;
+    }
+    return false;
 }
 
 World makeCampus() {
@@ -172,8 +184,8 @@ World makeCampus() {
         world.set({tx,y+1,tz},foliage);
     }
 
-    buildTower(world,memorialTower,false);
-    buildTower(world,middlesexTower,true);
+    buildTower(world,memorialTower,memorialTowerTop,false);
+    buildTower(world,middlesexTower,middlesexTowerTop,true);
     finishExterior(world);
     return world;
 }

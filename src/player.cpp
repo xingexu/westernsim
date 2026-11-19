@@ -54,7 +54,7 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
 void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     constexpr auto dt = static_cast<float>(physicsStep);
     const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.25f,0)))) == Block::water;
-    const float speed = swimming ? 1.25f : sprint ? 3.5f : 2.4f;
+    const float speed = swimming ? 6.25f : sprint ? 17.5f : 12.f;
     const float amount = glm::dot(wish, wish);
     if (amount > 1.f) wish /= std::sqrt(amount);
     velocity.x = wish.x * speed;
@@ -81,7 +81,7 @@ void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     if (moving) {
         const float target = std::atan2(-wish.x, -wish.z);
         heading += std::remainder(target - heading, 6.2831853f) * 14.f * dt;
-        stride += speed * 5.f * dt;
+        stride += speed * dt;
     }
 }
 

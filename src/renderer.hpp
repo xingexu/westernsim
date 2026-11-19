@@ -2,6 +2,8 @@
 
 #include "mesher.hpp"
 #include "player.hpp"
+#include "rigid_boxes.hpp"
+#include "water.hpp"
 
 #include <glm/mat4x4.hpp>
 #include <memory>
@@ -25,7 +27,9 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     void rebuild(const World& world, Meshing mode);
-    RenderStats draw(const Camera& camera, const Player& player, int width, int height, float time);
+    RenderStats draw(const Camera& camera, const Player& player, int width, int height, float time,
+                     const std::vector<RigidBox>& boxes = {}, const Water* water = nullptr,
+                     const std::optional<Player>& peer = {});
 
 private:
     struct Data;

@@ -1,0 +1,14 @@
+{
+  "name": "westernsim",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "test": "node --test tests/relay.test.js"
+  },
+  "dependencies": {
+    "@redis/client": "5.11.0",
+    "ws": "8.23.0"
+  }
+}

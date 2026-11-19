@@ -5,8 +5,9 @@
 namespace wsim {
 
 constexpr double physicsStep = 1.0 / 120.0;
-constexpr float playerRadius = .15f;
-constexpr float playerHeight = .83f;
+constexpr float avatarScale = 1.6f;
+constexpr float playerRadius = .15f * avatarScale;
+constexpr float playerHeight = .83f * avatarScale;
 
 struct Player {
     glm::vec3 feet{}, velocity{};

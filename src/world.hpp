@@ -23,6 +23,8 @@ enum class Block : std::uint8_t {
     lampPost, bench, planter, canopyGreen, canopyGold, canopyCopper,
     houseWall, academicWall, modernWall, heritageWall, libraryWall, unionWall, residenceWall,
     galleryWall, wildflowers,
+    delawareWall, iveyWall, thamesWall, medwayWall, recreationWall, saugeenWall,
+    socialWall, naturalWall, physicsWall, westernScienceWall, alumniWall, huronWall, elginWall,
     count
 };
 

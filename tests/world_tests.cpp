@@ -1,6 +1,9 @@
 #include "mesher.hpp"
 #include "player.hpp"
 #include "campus.hpp"
+#include "rigid_boxes.hpp"
+#include "remote_avatar.hpp"
+#include "water.hpp"
 
 #include <glm/geometric.hpp>
 #include <cmath>
@@ -93,9 +96,18 @@ void movementAndRaycasting() {
     for (int i = 0; i < 240; ++i) walker.step(world,{1,0,0},true,i == 60);
     check(std::abs(walker.feet.x-(8.5f-.185f-playerRadius)) < .001f,
           "the visible tree trunk blocks walking and jumping");
-    walker.feet = {7.5f,1.f,4.14f};
+    walker.feet = {7.5f,1.f,4.05f};
     for (int i = 0; i < 120; ++i) walker.step(world,{1,0,0},false,false);
     check(walker.feet.x > 9.f, "a walker can pass beside the trunk within its anchor cell");
+
+    Player visitor;
+    visitor.feet = {1.f,1.f,8.f};
+    for (const bool sprint : {false,true,false}) {
+        const float start = visitor.feet.x;
+        for (int i = 0; i < 24; ++i) visitor.step(world,{1,0,0},sprint,false);
+        check(std::abs(visitor.feet.x-start-(sprint ? 3.5f : 2.4f)) < .001f,
+              "movement returns to five times the old walk speed after releasing sprint");
+    }
 }
 
 void persistence() {
@@ -114,6 +126,95 @@ void persistence() {
     std::filesystem::remove(path);
 }
 
+void rigidBodyDynamics() {
+    World world(16);
+    for (int z = 0; z < 16; ++z)
+        for (int x = 0; x < 16; ++x)
+            world.set({x,0,z},Block::concrete);
+    for (int y = 1; y < 4; ++y)
+        for (int z = 0; z < 16; ++z)
+            world.set({8,y,z},Block::concrete);
+
+    RigidBoxes boxes;
+    check(!boxes.spawn(world,{8.5f,2.f,5.5f}),"a box cannot spawn inside a wall");
+    check(boxes.spawn(world,{5.5f,3.f,5.5f}),"a box spawns in clear space");
+    Player player;
+    player.feet = {1.5f,1.f,5.7f};
+    bool bounced = false;
+    for (int i = 0; i < 360; ++i) {
+        boxes.step(world,player,player.feet);
+        const auto& box = boxes.bodies().front();
+        if (box.velocity.y > .5f) bounced = true;
+        check(box.position.y > 1.32f,"a falling box stays above the floor");
+    }
+    check(bounced && std::abs(boxes.bodies().front().position.y-1.34f) < .01f &&
+          boxes.bodies().front().rotation.w > .999f,"a flat drop bounces and comes to rest without spinning");
+
+    bool rotated = false, moved = false;
+    for (int i = 0; i < 240; ++i) {
+        const auto previous = player.feet;
+        player.step(world,{1,0,0},false,false);
+        boxes.step(world,player,previous);
+        const auto& box = boxes.bodies().front();
+        moved |= box.position.x > 6.f;
+        rotated |= std::abs(box.rotation.w) < .997f;
+        check(box.position.x < 8.f && box.position.y > 1.22f &&
+              std::abs(glm::dot(box.rotation,box.rotation)-1.f) < .0001f,
+              "a rotating box respects the wall and floor");
+    }
+    check(moved && rotated,"an off-center avatar impact translates and rotates the box");
+
+    world.set({6,1,10},Block::canopyGreen);
+    check(!boxes.spawn(world,{6.5f,2.5f,10.5f}),"a box cannot spawn across a trunk above its anchor");
+    check(boxes.spawn(world,{6.5f,2.5f,11.1f}),"the space beside the trunk stays clear");
+}
+
+void heightField() {
+    World world(16);
+    for (int z = 1; z < 15; ++z)
+        for (int x = 1; x < 15; ++x)
+            if (x != 9) world.set({x,3,z},Block::water);
+    Water water(world);
+    const auto height = [&](int x,int z) { return water.heights()[x+z*water.edge()]; };
+    water.step();
+    check(water.revision() == 0 && !water.splash({5.5f,9.f,8.5f},.1f),
+          "a calm pond stays at rest and ignores players above it");
+    check(water.splash({5.5f,3.5f,8.5f},.1f),"a swimmer displaces the surface");
+    water.step();
+    check(height(5,8) > .09f && height(8,8) == 0.f,"the displacement begins at the swimmer");
+    for (int i = 0; i < 40; ++i) water.step();
+    check(std::abs(height(8,8)) > .002f && height(9,8) == 0.f && height(10,8) == 0.f,
+          "waves travel over time and stay within their shoreline");
+    for (int i = 0; i < 1000; ++i) water.step();
+    check(height(5,8) == 0.f && height(8,8) == 0.f,"the damped height field settles");
+}
+
+void remoteInterpolation() {
+    RemoteAvatar remote;
+    Player a, b;
+    a.heading = 3.1f;
+    b.heading = -3.1f;
+    b.feet = {1,0,2};
+    b.stride = 2.5f;
+    remote.receive(a,.1);
+    remote.receive(b,.2);
+    const auto middle = remote.pose(.27);
+    check(middle && glm::distance(middle->feet,glm::vec3(.5f,0,1)) < .001f &&
+          std::abs(std::abs(middle->heading)-3.14159f) < .001f &&
+          std::abs(middle->stride-1.25f) < .001f,
+          "remote pose interpolates position, wraparound heading, and stride");
+    Player reset;
+    reset.feet = {50,0,50};
+    remote.receive(reset,.25);
+    const auto beforeReset = remote.pose(.35);
+    const auto afterReset = remote.pose(.38);
+    check(beforeReset && beforeReset->feet == b.feet && afterReset && afterReset->feet == reset.feet,
+          "a distant respawn cuts without interpolating through the world");
+    check(!remote.pose(3.),"a stale peer is hidden");
+    remote.clear();
+    check(!remote.pose(.38),"a departed peer is removed");
+}
+
 void campus() {
     const auto world = makeCampus();
     const auto spawn = world.spawn();
@@ -125,14 +226,32 @@ void campus() {
           world.get({bridge.x,10,bridge.y}) == Block::air, "University Drive crosses above the Thames");
     Player bridgeWalker;
     bridgeWalker.feet = {706.5f,10.f,423.5f};
-    for (int i = 0; i < 300; ++i) bridgeWalker.step(world,{-1,0,0},false,false);
+    for (int i = 0; i < 120; ++i) bridgeWalker.step(world,{-1,0,0},false,false);
     check(bridgeWalker.feet.x < 701.f && std::abs(bridgeWalker.feet.y-10.f) < .001f,
           "University Drive's north sidewalk is walkable onto the deck from the east");
     const auto top = [&](glm::ivec2 place) {
         return raycast(world,{place.x+.5f,63.f,place.y+.5f},{0,-1,0},63.f);
     };
     const auto tower = top(memorialTower), spire = top(middlesexTower);
-    check(tower && tower->block.y >= 34 && spire && spire->block.y >= 35, "both tower silhouettes");
+    check(tower && tower->block.y == memorialTowerTop+2 &&
+          spire && spire->block.y == middlesexTowerTop+1, "both tower silhouettes");
+    for (const auto& landmark : landmarks) {
+        const auto p = landmark.roof;
+        check(p.x >= landmark.low.x && p.x < landmark.high.x &&
+              p.z >= landmark.low.y && p.z < landmark.high.y && solid(world.get(p)),
+              "every landmark label attaches to its exterior or plaza");
+        if (landmark.firstSpan != landmark.endSpan)
+            check(landmarkContainsColumn(landmark,{p.x,p.z}), "a building owns its own label column");
+    }
+    const auto& unionCentre = landmarks[3];
+    const auto& socialScience = landmarks[6];
+    const glm::ivec3 blockedBy{364,19,344};
+    check(world.get(blockedBy) == Block::socialWall &&
+          blockedBy.x >= unionCentre.low.x && blockedBy.x < unionCentre.high.x &&
+          blockedBy.z >= unionCentre.low.y && blockedBy.z < unionCentre.high.y &&
+          landmarkContainsColumn(socialScience,{blockedBy.x,blockedBy.z}) &&
+          !landmarkContainsColumn(unionCentre,{blockedBy.x,blockedBy.z}),
+          "the Social Science Centre can occlude labels within the UCC bounds");
     const auto plaza = top(landmarks[4].position);
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
     const auto ontario = landmarks[13].position;
@@ -155,9 +274,12 @@ int main() {
     try {
         meshing();
         movementAndRaycasting();
+        rigidBodyDynamics();
+        heightField();
+        remoteInterpolation();
         persistence();
         campus();
-        std::cout << "Meshing, movement, persistence and campus checks passed.\n";
+        std::cout << "World, avatar, rigid-body, water, and interpolation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

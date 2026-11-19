@@ -1,6 +1,7 @@
 #include "hud.hpp"
 #include "renderer.hpp"
 #include "campus.hpp"
+#include "remote_avatar.hpp"
 
 #include "graphics.hpp"
 #include <GLFW/glfw3.h>
@@ -26,6 +27,9 @@
 #ifdef __EMSCRIPTEN__
 EM_JS(void, showBrowserError, (const char* message), { Module.westernSimFailed(UTF8ToString(message)); });
 EM_JS(void, showBrowserReady, (), { Module.westernSimReady(); });
+EM_JS(void, sendBrowserPose, (float x,float y,float z,float heading,float stride,float gait), {
+    if (Module.westernSimSendPose) Module.westernSimSendPose(x,y,z,heading,stride,gait);
+});
 #endif
 
 namespace {
@@ -80,18 +84,21 @@ struct Window {
 
 struct Orbit {
     float yaw = -1.11f, pitch = .17f;
+    bool overhead = false;
 
     glm::vec3 horizontal() const { return {std::sin(yaw), 0.f, -std::cos(yaw)}; }
     glm::vec3 right() const { return {std::cos(yaw), 0.f, std::sin(yaw)}; }
 
     Camera view(const World& world, glm::vec3 feet, float aspect) const {
-        const auto direction = horizontal() * std::cos(pitch) + glm::vec3(0,std::sin(pitch),0);
-        const auto focus = feet + glm::vec3(0,.96f,0) + right() * .09f;
-        float distance = 3.4f;
+        const float elevation = overhead ? -1.36f : pitch;
+        const auto direction = horizontal() * std::cos(elevation) + glm::vec3(0,std::sin(elevation),0);
+        const auto focus = feet + glm::vec3(0,playerHeight + .1f,0) + right() * .14f;
+        float distance = overhead ? 48.f : 3.65f;
         if (const auto obstruction = raycast(world,focus,-direction,distance))
             distance = std::max(.12f, obstruction->distance - .22f);
         const auto eye = focus - direction * distance;
-        return {eye,direction,glm::lookAt(eye,eye+direction,{0,1,0}),
+        const auto forward = overhead ? glm::normalize(direction + horizontal()*.25f) : direction;
+        return {eye,forward,glm::lookAt(eye,eye+forward,{0,1,0}),
                 glm::perspective(62.f * pi / 180.f,aspect,.055f,220.f)};
     }
 };
@@ -116,10 +123,11 @@ void checkGraphics() {
     if (error != GL_NO_ERROR) throw std::runtime_error("OpenGL error " + std::to_string(error));
 }
 
-RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const Camera& camera,
-                      const Player& player, float time, HudState& state) {
-    state.stats = renderer.draw(camera,player,width,height,time);
-    hud.draw(width,height,state);
+RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const World& world, const Camera& camera,
+                      const Player& player, float time, HudState& state, const std::vector<RigidBox>& boxes = {},
+                      const Water* water = nullptr, const std::optional<Player>& peer = {}) {
+    state.stats = renderer.draw(camera,player,width,height,time,boxes,water,peer);
+    hud.draw(width,height,world,camera,state);
     return state.stats;
 }
 
@@ -150,9 +158,10 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
             orbit.yaw += .48f * std::sin(t * 2.f * pi);
             const auto camera = orbit.view(world,player.feet,float(width)/height);
             HudState state;
+            state.position = {player.feet.x,player.feet.z};
             state.heading = orbit.yaw * 180.f / pi;
             state.meshing = mode;
-            stats = drawFrame(renderer,hud,width,height,camera,player,t * 3.f,state);
+            stats = drawFrame(renderer,hud,width,height,world,camera,player,t * 3.f,state);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (frame >= 0) {
@@ -217,11 +226,21 @@ public:
     void look(float dx, float dy) {
         if (!captured_ || overlay()) return;
         orbit_.yaw = std::remainder(orbit_.yaw + dx * .0026f,2*pi);
-        orbit_.pitch = std::clamp(orbit_.pitch - dy * .0026f,-1.33f,1.14f);
+        if (!orbit_.overhead)
+            orbit_.pitch = std::clamp(orbit_.pitch - dy * .0026f,-1.33f,1.14f);
     }
 
 #ifdef __EMSCRIPTEN__
     void requestCapture() { cursor(true); }
+    void receivePeer(glm::vec3 feet,float heading,float stride,float gait) {
+        Player pose;
+        pose.feet = feet;
+        pose.heading = heading;
+        pose.stride = stride;
+        pose.gait = gait;
+        peer_.receive(pose,glfwGetTime());
+    }
+    void disconnectPeer() { peer_.clear(); }
 #else
     void run() {
         while (!glfwWindowShouldClose(window_)) {
@@ -248,6 +267,10 @@ public:
         previous_ = now;
         handleKeys();
         if (!overlay()) simulate(elapsed);
+#ifdef __EMSCRIPTEN__
+        const auto p = player_.feet;
+        sendBrowserPose(p.x,p.y,p.z,std::remainder(player_.heading,2*pi),player_.stride,player_.gait);
+#endif
         int width, height;
         glfwGetFramebufferSize(window_,&width,&height);
         if (width == 0 || height == 0) return false;
@@ -262,7 +285,7 @@ public:
             fpsTime_ = 0;
             fpsFrames_ = 0;
         }
-        drawFrame(renderer_,hud_,width,height,camera,player_,float(now),state_);
+        drawFrame(renderer_,hud_,width,height,world_,camera,player_,float(now),state_,boxes_.bodies(),&water_,peer_.pose(now));
 #ifndef __EMSCRIPTEN__
         glfwSwapBuffers(window_);
 #endif
@@ -274,7 +297,10 @@ private:
     Renderer& renderer_;
     Hud& hud_;
     const World world_ = makeCampus();
+    Water water_{world_};
     Player player_;
+    RigidBoxes boxes_;
+    RemoteAvatar peer_;
     Orbit orbit_;
     HudState state_;
     std::array<bool,GLFW_KEY_LAST+1> keys_{};
@@ -285,6 +311,7 @@ private:
     double mouseX_ = 0, mouseY_ = 0;
 #endif
     double accumulator_ = 0, toastUntil_ = 0;
+    double wakeCooldown_ = 0;
     double fpsTime_ = 0, previous_ = 0;
     int fpsFrames_ = 0;
     std::string toast_;
@@ -313,6 +340,7 @@ private:
         orbit_ = {};
         player_.heading = -orbit_.yaw;
         accumulator_ = 0;
+        wakeCooldown_ = 0;
         jumpQueued_ = false;
     }
 
@@ -352,7 +380,14 @@ private:
         if (!overlay()) {
             if (keys_[diagnosticsKey]) state_.diagnostics = !state_.diagnostics;
             if (keys_[GLFW_KEY_R]) resetPlayer();
+            if (keys_[GLFW_KEY_C]) orbit_.overhead = !orbit_.overhead;
             if (keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
+            if (keys_[GLFW_KEY_B] && captured_) {
+                const auto origin = player_.feet+glm::vec3(0,1.1f,0);
+                const auto direction = orbit_.horizontal();
+                if (raycast(world_,origin,direction,1.6f) || !boxes_.spawn(world_,origin+direction*1.6f))
+                    announce("Need clear space for a box");
+            }
         }
         keys_.fill(false);
     }
@@ -360,14 +395,26 @@ private:
     void simulate(double elapsed) {
         glm::vec3 wish{};
         if (captured_) {
-            wish = orbit_.horizontal() * float(held(GLFW_KEY_W) - held(GLFW_KEY_S)) +
-                   orbit_.right() * float(held(GLFW_KEY_D) - held(GLFW_KEY_A));
+            const bool forward = held(GLFW_KEY_UP) || held(GLFW_KEY_W);
+            const bool back = held(GLFW_KEY_DOWN) || held(GLFW_KEY_S);
+            const bool right = held(GLFW_KEY_RIGHT) || held(GLFW_KEY_D);
+            const bool left = held(GLFW_KEY_LEFT) || held(GLFW_KEY_A);
+            wish = orbit_.horizontal() * float(forward - back) + orbit_.right() * float(right - left);
         }
         accumulator_ += elapsed;
         while (accumulator_ >= physicsStep) {
             const bool inWater = world_.get(glm::ivec3(glm::floor(player_.feet + glm::vec3(0,.25f,0)))) == Block::water;
             const bool jump = jumpQueued_ || (captured_ && inWater && held(GLFW_KEY_SPACE));
+            const auto previousFeet = player_.feet;
+            const float verticalSpeed = player_.velocity.y;
             player_.step(world_,wish,held(GLFW_KEY_LEFT_SHIFT) || held(GLFW_KEY_RIGHT_SHIFT),jump);
+            boxes_.step(world_,player_,previousFeet);
+            wakeCooldown_ -= physicsStep;
+            if (wakeCooldown_ <= 0. &&
+                (glm::distance(player_.feet,previousFeet) > .018f || jump) &&
+                water_.splash(player_.feet,verticalSpeed < -3.f ? .13f : .055f))
+                wakeCooldown_ = .115;
+            water_.step();
             jumpQueued_ = false;
             accumulator_ -= physicsStep;
         }
@@ -415,6 +462,12 @@ EMSCRIPTEN_KEEPALIVE void westernsim_capture() {
 }
 EMSCRIPTEN_KEEPALIVE void westernsim_look(float dx, float dy) {
     if (browserGame) browserGame->look(dx,dy);
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_remote(float x,float y,float z,float heading,float stride,float gait) {
+    if (browserGame) browserGame->receivePeer({x,y,z},heading,stride,gait);
+}
+EMSCRIPTEN_KEEPALIVE void westernsim_remote_clear() {
+    if (browserGame) browserGame->disconnectPeer();
 }
 }
 
@@ -481,8 +534,9 @@ int main(int argc,char** argv) {
                 auto camera = orbit.view(world,player.feet,float(width)/height);
                 if (args.screenshotAvatar) {
                     player.heading = pi - orbit.yaw + .21f;
-                    const auto target = player.feet + glm::vec3(0,.44f,0);
-                    const auto eye = target - orbit.horizontal()*1.38f + glm::vec3(0,.115f,0);
+                    const auto target = player.feet + glm::vec3(0,playerHeight*.53f,0);
+                    const auto eye = target - orbit.horizontal()*(1.38f*avatarScale) +
+                                     glm::vec3(0,.115f*avatarScale,0);
                     camera = {eye,glm::normalize(target-eye),glm::lookAt(eye,target,{0,1,0}),
                               glm::perspective(44.f*pi/180.f,float(width)/height,.08f,275.f)};
                     renderer.draw(camera,player,width,height,1.2f);
@@ -492,7 +546,7 @@ int main(int argc,char** argv) {
                     state.position = {player.feet.x,player.feet.z};
                     state.heading = orbit.yaw * 180.f / pi;
                     if (state.map) hud.setCampusMap(world);
-                    drawFrame(renderer,hud,width,height,camera,player,1.2f,state);
+                    drawFrame(renderer,hud,width,height,world,camera,player,1.2f,state);
                 }
                 capture(args.screenshot,width,height);
                 checkGraphics();

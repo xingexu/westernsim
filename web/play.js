@@ -1,8 +1,11 @@
+import { multiplayer } from "./multiplayer.js";
+
 (() => {
   const canvas = document.querySelector("#canvas");
   const launcher = document.querySelector("#launcher");
   const play = document.querySelector("#play");
   const status = document.querySelector("#status");
+  const online = multiplayer(canvas);
   let ready = false;
   let entered = false;
   let broken = false;
@@ -20,12 +23,14 @@
   window.Module = {
     canvas,
     westernSimFailed: fail,
+    westernSimSendPose: online.send,
     westernSimReady() {
       if (broken) return;
       ready = true;
       launcher.classList.add("ready");
       status.textContent = "Walk around campus and see its buildings from the outside.";
       play.disabled = false;
+      online.ready();
     },
     onAbort() { fail("The game could not start. Reload to try again."); },
   };
@@ -55,6 +60,11 @@
       Module._westernsim_look(event.movementX, event.movementY);
     }
   }, true);
+  document.addEventListener("keydown", (event) => {
+    if (document.pointerLockElement === canvas && event.key.startsWith("Arrow")) {
+      event.preventDefault();
+    }
+  });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("webglcontextlost", () => fail("The browser lost its graphics context. Reload to resume."));
   window.addEventListener("error", (event) => {
