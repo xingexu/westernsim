@@ -21,7 +21,7 @@ function allowedOrigin(request) {
   }
 }
 
-export function attachRelay(server, redisUrl = process.env.REDIS_URL) {
+export function attachRelay(server, redisUrl = process.env.REDIS_URL, { maxConnections = 256 } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 256, perMessageDeflate: false });
   const rooms = new Map();
   let storePromise;
@@ -43,6 +43,10 @@ export function attachRelay(server, redisUrl = process.env.REDIS_URL) {
     const room = url.searchParams.get("room");
     if (url.pathname !== "/api/ws" || !roomCode.test(room ?? "") || !allowedOrigin(request)) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    if (wss.clients.size >= maxConnections) {
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
       return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => void connect(ws, room));

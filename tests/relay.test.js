@@ -14,7 +14,7 @@ const waitForMessage = async (socket) => {
 
 test("relay pairs exactly two peers, isolates rooms, and releases disconnects", { timeout: 8000 }, async (t) => {
   const server = createServer();
-  const relay = attachRelay(server, "");
+  const relay = attachRelay(server, "", { maxConnections: 4 });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {
     for (const peer of relay.clients) peer.terminate();
@@ -38,6 +38,10 @@ test("relay pairs exactly two peers, isolates rooms, and releases disconnects", 
   isolated.on("message", () => isolatedPackets++);
   const extra = open(code);
   assert.equal((await once(extra,"close"))[0],4003);
+  const fourth = open("000000000002");
+  assert.deepEqual(await waitForMessage(fourth),{ type: "joined" });
+  const busy = open("000000000003");
+  assert.match((await once(busy,"error"))[0].message,/503/);
 
   const fromOne = waitForMessage(two);
   one.send(JSON.stringify([480,12,320,1.5,4,.5]));
