@@ -29,9 +29,10 @@ ELEVATION_ORIGIN = 224
 PROJECT = Transformer.from_crs(4326, 26917, always_xy=True)
 XX, ZZ = np.meshgrid(WEST + (np.arange(EDGE)+.5)*CELL, NORTH - (np.arange(EDGE)+.5)*CELL)
 
-GRASS, WATER, TRAIL, ROAD, WALK, PLAZA, PARKING, STEPS, FIELD, BRIDGE, WOODS = range(11)
+GRASS, WATER, TRAIL, ROAD, WALK, PLAZA, PARKING, STEPS, FIELD, BRIDGE, WOODS, TRACK, TURF, SAND_COURT, PAVERS = range(15)
 TOWN, STONE, MODERN, UC, MIDDLESEX, WELDON, UCC, ONTARIO, GALLERY, TALL, DELAWARE, IVEY, THAMES, MEDWAY, REC, HOSPITAL = range(1,17)
 SOCIAL, NATURAL, PHYSICS, WESTERN_SCIENCE, ALUMNI, HURON, ELGIN = range(17,24)
+FIMS, MUSIC, ENGINEERING = range(24,27)
 # Anchor points from Western's walking tour and the corresponding mapped building.
 # Name, latitude, longitude, facade, fallback height in cells, matching OSM way.
 LANDMARKS = [
@@ -59,9 +60,9 @@ LANDMARKS = [
 # Additional exterior treatments that don't need a numbered map pin.
 SECONDARY = [
     ("University Hospital",43.0130,-81.27535,HOSPITAL,19,749120077),
-    ("FIMS & Nursing",43.00601,-81.27262,MODERN,10,558927474),
-    ("Music Building",43.00675,-81.27106,MODERN,9,1264685790),
-    ("Amit Chakma Engineering",43.00437,-81.27636,MODERN,9,626520018),
+    ("FIMS & Nursing",43.00601,-81.27262,FIMS,10,558927474),
+    ("Music Building",43.00675,-81.27106,MUSIC,9,1264685790),
+    ("Amit Chakma Engineering",43.00437,-81.27636,ENGINEERING,9,626520018),
     ("Lawson Hall",43.00897,-81.27388,STONE,7,237302165),
 ]
 OUTDOOR_LANDMARKS = [
@@ -197,7 +198,7 @@ def osm_data(cache):
             yield int(way.get("id")), tags, points
 
 
-def elevation(layers):
+def elevation(layers, dtm):
     samples = []
     for feature in layers[5]:
         height = feature["attributes"]["Elevation"]
@@ -220,10 +221,20 @@ def elevation(layers):
     values = LinearNDInterpolator(coords[:,:2],coords[:,2])(XX,ZZ)
     missing = np.isnan(values)
     values[missing] = NearestNDInterpolator(coords[:,:2],coords[:,2])(XX[missing],ZZ[missing])
-    return np.clip(np.rint((gaussian_filter(values,.65) - ELEVATION_ORIGIN)/CELL),2,35).astype(np.uint8)
+    # Use the bare-earth raster for hill and valley profiles. Keep the City
+    # contours at the surveyed waterline, where the DEM can sample exposed
+    # bed/banks or a different water stage.
+    water = np.zeros((EDGE,EDGE),dtype=np.uint8)
+    for feature in layers[49]:
+        paint(water,polygon(feature["geometry"]["rings"]),1)
+    weight = np.minimum(1.,distance_transform_edt(water == 0)/4.)
+    bare_earth = gaussian_filter(np.where(np.isfinite(dtm),dtm,values),.6)
+    contours = gaussian_filter(values,.65)
+    heights = contours + weight*(bare_earth-contours)
+    return np.clip(np.rint((heights - ELEVATION_ORIGIN)/CELL),2,35).astype(np.uint8)
 
 
-def surfaces(layers, osm, ground):
+def surfaces(layers, osm, ground, dsm, dtm):
     surface = np.zeros((EDGE,EDGE), dtype=np.uint8)
     bridges = np.zeros_like(surface)
     for layer, value in [(47,WOODS),(30,ROAD),(49,WATER)]:
@@ -238,13 +249,20 @@ def surfaces(layers, osm, ground):
             area = make_valid(Polygon(points))
             if tags.get("amenity") == "parking":
                 paint(surface,area,PARKING,open_lot)
-            elif leisure in {"pitch","track"}:
-                paint(surface,area,FIELD,open_lot)
+            elif leisure in {"pitch","track"} and tags.get("surface") != "Covered":
+                material = {"artificial_turf":TURF,"sand":SAND_COURT}.get(
+                    tags.get("surface"),TRACK if leisure == "track" else FIELD)
+                if tags.get("sport") == "running" and area.area > 5000:
+                    area = area.difference(area.buffer(-11))
+                paint(surface,area,material,open_lot)
             elif tags.get("area") == "yes" and highway == "pedestrian":
                 paint(surface,area,PLAZA,dry)
         radius = {"path":.9,"footway":1.35,"pedestrian":1.8,"cycleway":1.4,"steps":1.7}.get(highway)
         if radius and not tags.get("bridge") and tags.get("tunnel") != "yes":
-            value = STEPS if highway == "steps" else TRAIL if highway == "path" else WALK
+            mapped = {"asphalt":ROAD,"concrete":WALK,"concrete:plates":WALK,"paving_stones":PAVERS,
+                      "bricks":PAVERS,"ground":TRAIL,"dirt":TRAIL,"crushed_limestone":TRAIL}
+            value = STEPS if highway == "steps" else mapped.get(
+                tags.get("surface"),TRAIL if highway == "path" else WALK)
             paint(surface,LineString(points).buffer(radius),value,unpaved)
     for layer, value, radius in [(43,TRAIL,1.1),(11,WALK,1.4),(34,WALK,1.55),(38,STEPS,1.6)]:
         eligible = np.isin(surface,[GRASS,WOODS,TRAIL,FIELD])
@@ -273,7 +291,8 @@ def surfaces(layers, osm, ground):
         width = {"tertiary":5.5,"secondary":6.5,"cycleway":2.0,"footway":1.35,"residential":4}.get(highway)
         if width is None:
             continue
-        rect, cells = mask(LineString(points).buffer(width,cap_style="flat"))
+        centreline = LineString(points)
+        rect, cells = mask(centreline.buffer(width,cap_style="flat"))
         if not np.any(water[rect] & cells):
             continue
         ends = []
@@ -285,6 +304,15 @@ def surfaces(layers, osm, ground):
         if not ends:
             continue
         base = max(ends)
+        # Sample elevated LiDAR returns along the deck, clear of its abutments.
+        deck = []
+        for position in np.linspace(.2,.8,11):
+            sample = centreline.interpolate(position,normalized=True)
+            x,z = int((sample.x-WEST)/CELL),int((NORTH-sample.y)/CELL)
+            if 0 <= x < EDGE and 0 <= z < EDGE and 2. <= dsm[z,x]-dtm[z,x] <= 14.:
+                deck.append(float(dsm[z,x]))
+        if len(deck) >= 6:
+            base = max(base,int(np.rint((np.median(deck)-ELEVATION_ORIGIN)/CELL)))
         # Fill the approach where it crosses land, using a consistent road grade.
         approaches = cells & ~water[rect] & (ground[rect] <= base)
         ground[rect][approaches] = base
@@ -349,7 +377,7 @@ def buildings(layers, osm, ground, dsm, dtm):
         for footprint in matching:
             assignments[footprint] = (kind,height,index)
         if ident:
-            mapped_landmarks[ident] = index
+            mapped_landmarks[ident] = (kind,index)
         print(f"{name:28} {cell(lat,lon)} | {len(matching)} surveyed polygons")
     for index,g in enumerate(city_polys):
         if g.area < 16:
@@ -386,8 +414,9 @@ def buildings(layers, osm, ground, dsm, dtm):
         s,t = style[rect],top[rect]
         pixels &= s == 0
         height = int(tags["building:levels"])*2 if tags.get("building:levels","").isdigit() else 7
-        s[pixels] = MODERN
-        owner[rect][pixels] = mapped_landmarks.get(ident,0)
+        kind, landmark = mapped_landmarks.get(ident,(MODERN,0))
+        s[pixels] = kind
+        owner[rect][pixels] = landmark
         terrain = ground[rect]
         depth = distance_transform_edt(np.pad(pixels,1))[1:-1,1:-1]
         roof = measured_roof(terrain,pixels,depth,dsm[rect],dtm[rect],np.clip(terrain+height,0,58))
@@ -557,15 +586,16 @@ def main():
         layers = dict(zip(ids,workers.map(lambda layer:city(args.cache,layer),ids)))
         osm = future.result()
     print("Interpolating surveyed elevations")
-    ground = elevation(layers)
+    ground = elevation(layers,dtm.result())
     print("Rasterizing streets, paths, and the Thames")
-    surface, bridges = surfaces(layers,osm,ground)
+    surface, bridges = surfaces(layers,osm,ground,dsm.result(),dtm.result())
     style,top,areas,spans,tower_tops = buildings(layers,osm,ground,dsm.result(),dtm.result())
     plants = trees(layers,ground,surface,style)
     if args.preview:
         ground_color = np.array([[129,155,91],[64,113,143],[157,127,84],[108,108,115],
                                  [200,185,157],[209,192,165],[128,127,129],[203,204,189],
-                                 [114,150,72],[143,132,119],[95,129,71]])
+                                 [114,150,72],[143,132,119],[95,129,71],[138,74,61],
+                                 [73,123,74],[199,166,113],[184,159,139]])
         rgb = ground_color[surface]
         rgb[bridges != 0] = ground_color[BRIDGE]
         rgb[style>0] = [136,111,107]

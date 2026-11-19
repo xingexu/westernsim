@@ -28,7 +28,7 @@ import { multiplayer } from "./multiplayer.js";
       if (broken) return;
       ready = true;
       launcher.classList.add("ready");
-      status.textContent = "Walk around campus and see its buildings from the outside.";
+      status.textContent = "Walk or fly around campus and see its buildings from the outside.";
       play.disabled = false;
       online.ready();
     },
@@ -61,7 +61,8 @@ import { multiplayer } from "./multiplayer.js";
     }
   }, true);
   document.addEventListener("keydown", (event) => {
-    if (document.pointerLockElement === canvas && event.key.startsWith("Arrow")) {
+    if (document.pointerLockElement === canvas &&
+        (event.code.startsWith("Arrow") || event.code === "Space" || event.code === "Tab")) {
       event.preventDefault();
     }
   });

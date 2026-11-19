@@ -96,9 +96,9 @@ void movementAndRaycasting() {
     for (int i = 0; i < 240; ++i) walker.step(world,{1,0,0},true,i == 60);
     check(std::abs(walker.feet.x-(8.5f-.185f-playerRadius)) < .001f,
           "the visible tree trunk blocks walking and jumping");
-    walker.feet = {7.5f,1.f,4.05f};
+    walker.feet = {7.5f,1.f,3.99f};
     for (int i = 0; i < 120; ++i) walker.step(world,{1,0,0},false,false);
-    check(walker.feet.x > 9.f, "a walker can pass beside the trunk within its anchor cell");
+    check(walker.feet.x > 9.f, "a walker can pass beside the trunk while overlapping its anchor cell");
 
     Player visitor;
     visitor.feet = {1.f,1.f,8.f};
@@ -124,6 +124,29 @@ void persistence() {
     std::filesystem::resize_file(path, 10);
     check(!World::load(path, error), "truncated data is rejected");
     std::filesystem::remove(path);
+}
+
+void flight() {
+    World world(16);
+    world.set({3,0,3},Block::grass);
+    world.set({4,2,3},Block::heritageWall);
+    Player player;
+    player.feet = {3.5f,1.f,3.5f};
+    player.toggleFlight();
+    for (int i = 0; i < 12; ++i) player.step(world,{0,1,0},false,false);
+    check(std::abs(player.feet.y-2.5f) < .001f, "hold to rise in flight");
+    for (int i = 0; i < 12; ++i) player.step(world,{1,0,0},true,false);
+    check(std::abs(player.feet.x-(4.f-playerRadius)) < .001f &&
+          std::abs(player.feet.y-2.5f) < .001f, "flight hovers and collides with building walls");
+    for (int i = 0; i < 30; ++i) player.step(world,{0,-1,0},false,false);
+    check(std::abs(player.feet.y-1.f) < .001f, "descending stops at the ground");
+    for (int i = 0; i < 900; ++i) player.step(world,{0,1,0},false,false);
+    check(std::abs(player.feet.y-flightCeiling) < .001f, "flight has a height limit");
+    for (int i = 0; i < 120; ++i) player.step(world,{1,0,0},true,false);
+    check(std::abs(player.feet.x-(world.edge()-playerRadius)) < .001f, "flight stays inside the campus");
+    player.toggleFlight();
+    player.step(world,{},false,false);
+    check(player.velocity.y < 0.f && player.feet.y < flightCeiling, "flight off restores gravity");
 }
 
 void rigidBodyDynamics() {
@@ -256,7 +279,7 @@ void campus() {
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
     const auto ontario = landmarks[13].position;
     const auto residence = top(ontario);
-    check(residence && world.get(residence->block) == Block::concrete, "Ontario Hall roof");
+    check(residence && world.get(residence->block) == Block::membraneRoof, "Ontario Hall's flat roof uses its own material");
 
     // Start outside Ontario Hall and attempt to walk and jump through the façade.
     const auto entry = raycast(world,{ontario.x+.5f,13.4f,ontario.y+13.5f},{0,0,-1},13.f);
@@ -274,6 +297,7 @@ int main() {
     try {
         meshing();
         movementAndRaycasting();
+        flight();
         rigidBodyDynamics();
         heightField();
         remoteInterpolation();

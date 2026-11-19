@@ -92,8 +92,8 @@ struct Orbit {
     Camera view(const World& world, glm::vec3 feet, float aspect) const {
         const float elevation = overhead ? -1.36f : pitch;
         const auto direction = horizontal() * std::cos(elevation) + glm::vec3(0,std::sin(elevation),0);
-        const auto focus = feet + glm::vec3(0,playerHeight + .1f,0) + right() * .14f;
-        float distance = overhead ? 48.f : 3.65f;
+        const auto focus = feet + glm::vec3(0,playerHeight*.91f,0) + right() * .14f;
+        float distance = overhead ? 48.f : 4.05f;
         if (const auto obstruction = raycast(world,focus,-direction,distance))
             distance = std::max(.12f, obstruction->distance - .22f);
         const auto eye = focus - direction * distance;
@@ -277,6 +277,7 @@ public:
         const auto camera = orbit_.view(world_,player_.feet,float(width)/height);
         state_.heading = orbit_.yaw * 180.f / pi;
         state_.position = {player_.feet.x,player_.feet.z};
+        state_.flying = player_.flying;
         if (now >= toastUntil_) state_.toast = {};
         fpsTime_ += elapsed;
         ++fpsFrames_;
@@ -381,7 +382,12 @@ private:
             if (keys_[diagnosticsKey]) state_.diagnostics = !state_.diagnostics;
             if (keys_[GLFW_KEY_R]) resetPlayer();
             if (keys_[GLFW_KEY_C]) orbit_.overhead = !orbit_.overhead;
-            if (keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
+            if (keys_[GLFW_KEY_F] && captured_) {
+                player_.toggleFlight();
+                jumpQueued_ = false;
+                if (!player_.flying) announce("Flight off");
+            }
+            if (!player_.flying && keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
             if (keys_[GLFW_KEY_B] && captured_) {
                 const auto origin = player_.feet+glm::vec3(0,1.1f,0);
                 const auto direction = orbit_.horizontal();
@@ -400,11 +406,12 @@ private:
             const bool right = held(GLFW_KEY_RIGHT) || held(GLFW_KEY_D);
             const bool left = held(GLFW_KEY_LEFT) || held(GLFW_KEY_A);
             wish = orbit_.horizontal() * float(forward - back) + orbit_.right() * float(right - left);
+            if (player_.flying) wish.y = float(held(GLFW_KEY_SPACE) - held(GLFW_KEY_Q));
         }
         accumulator_ += elapsed;
         while (accumulator_ >= physicsStep) {
             const bool inWater = world_.get(glm::ivec3(glm::floor(player_.feet + glm::vec3(0,.25f,0)))) == Block::water;
-            const bool jump = jumpQueued_ || (captured_ && inWater && held(GLFW_KEY_SPACE));
+            const bool jump = !player_.flying && (jumpQueued_ || (captured_ && inWater && held(GLFW_KEY_SPACE)));
             const auto previousFeet = player_.feet;
             const float verticalSpeed = player_.velocity.y;
             player_.step(world_,wish,held(GLFW_KEY_LEFT_SHIFT) || held(GLFW_KEY_RIGHT_SHIFT),jump);

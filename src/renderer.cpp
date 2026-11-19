@@ -34,8 +34,12 @@ const std::array<glm::vec3,static_cast<std::size_t>(Block::count)> colors{
     rgb(0xbca998), rgb(0xaa816d), rgb(0xad9a83), {},
     rgb(0xa58d76), rgb(0xd0c5aa), rgb(0xb3a697), rgb(0xa78c72), rgb(0x8fa6a8),
     rgb(0xa59584), rgb(0xaf9f92), rgb(0xb7a588), rgb(0xbbaa90), rgb(0xa69e91),
-    rgb(0xb5a69c), rgb(0xb9aa93), rgb(0xa47057)
+    rgb(0xb5a69c), rgb(0xb9aa93), rgb(0xa47057),
+    rgb(0x77777b), rgb(0x83a556), rgb(0xa85b4b), rgb(0x528044), rgb(0xc2a278),
+    rgb(0xbc9e85), rgb(0x9a9a91), rgb(0x777670), rgb(0x4a5059),
+    rgb(0x85756a), rgb(0xc5b9a1), rgb(0x8c9597), rgb(0xb3ada0)
 };
+static_assert(static_cast<int>(Block::count) == 70, "Update the world shader palette size when adding materials");
 
 GLuint compile(GLenum type, const char* source) {
     const auto shader = glCreateShader(type);
