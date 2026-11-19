@@ -31,7 +31,10 @@ const std::array<glm::vec3,static_cast<std::size_t>(Block::count)> colors{
     rgb(0x857c9a), rgb(0x454050), rgb(0x42424d), rgb(0xb84251), rgb(0xf4e8cf), rgb(0xa977a9),
     {}, {}, {}, {}, {}, {},
     rgb(0xac7965), rgb(0xc9b89b), rgb(0xb7a99e), rgb(0xc9b499), rgb(0xc4b5a6),
-    rgb(0xbca998), rgb(0xb47f66), rgb(0xad9a83), {}
+    rgb(0xbca998), rgb(0xaa816d), rgb(0xad9a83), {},
+    rgb(0xa58d76), rgb(0xd0c5aa), rgb(0xb3a697), rgb(0xa78c72), rgb(0x8fa6a8),
+    rgb(0xa59584), rgb(0xaf9f92), rgb(0xb7a588), rgb(0xbbaa90), rgb(0xa69e91),
+    rgb(0xb5a69c), rgb(0xb9aa93), rgb(0xa47057)
 };
 
 GLuint compile(GLenum type, const char* source) {

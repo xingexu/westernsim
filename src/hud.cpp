@@ -7,6 +7,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -165,20 +166,82 @@ void help(Canvas& canvas, float w, float h) {
     canvas.rect(x+28,y+121,396,1,border);
     struct Shortcut { std::string_view key, action; };
     constexpr Shortcut controls[]{
-        {"WASD","Walk"}, {"MOUSE","Orbit camera"}, {"SPACE","Jump / swim up"}, {"SHIFT","Sprint"},
+        {"ARROWS","Walk (or WASD)"}, {"MOUSE","Orbit camera"}, {"SPACE","Jump / swim up"}, {"SHIFT","Hold to sprint"},
 #ifdef __EMSCRIPTEN__
         {"I","Diagnostics"},
 #else
         {"F1","Diagnostics"},
 #endif
         {"R","Return to UC Hill"}, {"ESC","Release / capture cursor"},
-        {"M","Campus map"}
+        {"M","Campus map"}, {"C","Street / overhead view"}
     };
     for (std::size_t i = 0; i < std::size(controls); ++i) {
         const float col = x + 28 + 203 * (i % 2);
         const float row = y + 136 + 31 * (i / 2);
         canvas.key(col,row,76,controls[i].key);
         canvas.text(col+84,row+16,controls[i].action,11.5f,ivory);
+    }
+}
+
+void landmarkSigns(Canvas& canvas, float w, float h, const World& world,
+                   const Camera& camera, Point player) {
+    struct Sign {
+        Point point;
+        float distance;
+        std::string_view name;
+    };
+    constexpr float fadeStart = 38.f, range = 58.f;
+    const auto viewProjection = camera.projection * camera.view;
+    std::array<Sign,std::size(landmarks)> signs{};
+    std::size_t count = 0;
+    for (const auto& landmark : landmarks) {
+        const float distance = glm::distance(player,glm::clamp(player,Point(landmark.low),Point(landmark.high)));
+        if (distance >= range) continue;
+        const auto roof = glm::vec3(landmark.roof) + glm::vec3(.5f,2.6f,.5f);
+        const auto clip = viewProjection * glm::vec4(roof,1.f);
+        if (clip.w <= 0 || std::abs(clip.x) > clip.w || clip.y < -clip.w ||
+            std::abs(clip.z) > clip.w) continue;
+        const auto viewRay = roof-camera.eye;
+        const auto obstruction = raycast(world,camera.eye,viewRay,glm::length(viewRay));
+        if (obstruction) {
+            const auto& p = obstruction->block;
+            if (p.x < landmark.low.x || p.x >= landmark.high.x ||
+                p.z < landmark.low.y || p.z >= landmark.high.y) continue;
+        }
+        const Point screen = (Point(clip)/clip.w * Point(.5f,-.5f) + .5f) * Point(w,h);
+        signs[count++] = {screen,distance,landmark.name};
+    }
+    std::sort(signs.begin(),signs.begin()+count,[](const Sign& a, const Sign& b) {
+        return a.distance < b.distance;
+    });
+    std::array<glm::vec4,std::size(landmarks)> placed{};
+    std::size_t used = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto& sign = signs[i];
+        constexpr float boxHeight = 30.f, fontSize = 15.f;
+        const float boxWidth = Canvas::width(sign.name,fontSize,true)+24.f;
+        const float x = std::round(std::clamp(sign.point.x-boxWidth*.5f,16.f,w-boxWidth-16.f));
+        const auto fits = [&](float y) {
+            return y >= 76.f && y+boxHeight < h-16.f &&
+                std::none_of(placed.begin(),placed.begin()+used,[&](glm::vec4 box) {
+                    return x < box.z+6.f && x+boxWidth+6.f > box.x &&
+                           y < box.w+11.f && y+boxHeight+11.f > box.y;
+                });
+        };
+        constexpr float row = 42.f;
+        float y = std::round(std::max(76.f,sign.point.y-boxHeight-7.f));
+        if (!fits(y)) y += fits(y-row) ? -row : row;
+        if (!fits(y)) continue;
+        placed[used++] = {x,y,x+boxWidth,y+boxHeight};
+        const float opacity = std::clamp((range-sign.distance)/(range-fadeStart),0.f,1.f);
+        const Color fade{1.f,1.f,1.f,opacity};
+        const float tip = std::clamp(sign.point.x,x+9.f,x+boxWidth-9.f);
+        if (sign.point.y < y)
+            canvas.triangle({tip-5,y+1},{tip+5,y+1},{tip,y-6},border*fade);
+        else
+            canvas.triangle({tip-5,y+boxHeight-1},{tip+5,y+boxHeight-1},{tip,y+boxHeight+6},border*fade);
+        canvas.card(x,y,boxWidth,boxHeight,panel*fade,border*fade);
+        canvas.centered(x+boxWidth*.5f,y+21.f,sign.name,fontSize,ivory*fade,true);
     }
 }
 
@@ -202,7 +265,7 @@ void campusMap(Canvas& canvas, float w, float h, const HudState& state) {
     const float menuX = x+582;
     canvas.text(menuX,y+119,"LANDMARKS",13,lilac,true);
     std::vector<Point> placed;
-    for (std::size_t i = 0; i < std::size(landmarks); ++i) {
+    for (int i = 0; i < mapLandmarkCount; ++i) {
         const auto& l = landmarks[i];
         const Point anchor = point(glm::vec2(l.position)+.5f);
         Point c = anchor;
@@ -223,7 +286,7 @@ void campusMap(Canvas& canvas, float w, float h, const HudState& state) {
         canvas.rect(c.x-8,c.y-7,16,14,{.17f,.13f,.25f,1});
         canvas.rect(c.x-7,c.y-6,14,12,signature ? purple : Color(.30f,.28f,.39f,1));
         char number[5];
-        std::snprintf(number,sizeof(number),"%02zu",i+1);
+        std::snprintf(number,sizeof(number),"%02d",i+1);
         canvas.centered(c.x,c.y+3.4f,number,8.5f,ivory,true);
         canvas.rect(menuX,row-8,25,19,{.24f,.18f,.34f,1});
         canvas.centered(menuX+12.5f,row+6,number,10,lilac,true);
@@ -378,12 +441,13 @@ void Hud::setCampusMap(const World& world) {
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 }
 
-void Hud::draw(int width, int height, const HudState& state) {
+void Hud::draw(int width, int height, const World& world, const Camera& camera, const HudState& state) {
     auto& d = *data_;
     auto& canvas = d.canvas;
     canvas.vertices.clear();
     const float scale = std::min(width / 1050.f, height / 840.f);
     const float w = width / scale, h = height / scale;
+    if (!state.map && !state.guide) landmarkSigns(canvas,w,h,world,camera,state.position);
     branding(canvas,w);
     compass(canvas,w,state.heading);
     if (!state.toast.empty()) {

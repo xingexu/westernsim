@@ -36,8 +36,9 @@ With a multi-config generator such as Visual Studio, run `build/Release/westerns
 
 | Control | Action |
 | --- | --- |
-| **WASD** / mouse | Walk / orbit the third-person camera |
-| **Shift** / **Space** | Sprint / jump or swim upward |
+| **Arrow keys** or **WASD** / mouse | Walk / orbit the third-person camera |
+| Hold **Shift** / **Space** | Sprint while held / jump or swim upward |
+| **C** | Switch between street level and overhead |
 | **M** / **Tab** | Campus map / field guide |
 | **F1** | Diagnostics |
 | **R** / **Esc** | Return to UC Hill / release or recapture the cursor |
@@ -46,15 +47,16 @@ With a multi-config generator such as Visual Studio, run `build/Release/westerns
 
 The `896 × 64 × 896` voxel grid covers a **1.792 km × 1.792 km** area at two metres per cell. It uses surveyed terrain, building footprints, roads, footpaths, trees, and water from the [City of London](https://london.ca/government/open-data), with [OpenStreetMap](https://www.openstreetmap.org/copyright) geometry for crossings and additional paths and buildings. Google Maps satellite imagery and Street View were visual references for the campus layout and streetscape. The game renders its own geometry and textures.
 
-The north-up campus map follows your position and labels 20 landmarks. Look for University College's Memorial Tower, Middlesex College's clock spire, Weldon Library's stepped profile, McIntosh Gallery's red entrance, and Ontario Hall's residence wings. The campus follows the surveyed footprints and topography. Building heights, roof shapes, window patterns, and street furniture are stylized estimates. Buildings are solid so you can walk around their exteriors.
+The north-up campus map follows your position and lists 20 landmarks. Names float above these landmarks, five additional buildings, University Bridge, and UC Hill as you approach. The [NRCan high-resolution elevation mosaic](https://open.canada.ca/data/en/dataset/0fe65119-e96e-4a57-8bfe-9d9245fba06b) supplies LiDAR roof profiles, including Weldon Library's stepped massing and the locations and heights of the two college towers. Exterior references inform the pixel-art façades, and some footprints use estimated heights where the LiDAR coverage and mapped outlines differ. Buildings are solid so you can walk around their exteriors.
 
-The builds use the checked-in geographic data. To rebake it from the public sources, install the Python packages NumPy, Pillow, PyProj, Requests, SciPy, and Shapely 2. Then run the command below. Subsequent runs reuse downloaded data in the supplied cache directory.
+The builds use the checked-in geographic data. To rebake it from the public sources, install the Python packages NumPy, Pillow, PyProj, Requests, SciPy, Shapely 2, and tifffile. Subsequent runs reuse downloaded data in the supplied cache directory.
 
 ```sh
 python tools/bake_campus.py /path/to/campus-cache --preview /path/to/campus-preview.png
 ```
 
 See [Western's campus map](https://www.uwo.ca/biology/obd2019/program__schedule/campus_map.html) and the [Western University walking tour](https://international.uwo.ca/pdf/2024/WI_Walking%20Tour%20and%20Map_2024%20web.pdf) for the real campus.
+Exterior references include [Weldon Library](https://doi.org/10.7202/1069482ar), [Physics and Astronomy](https://atrr.ca/projects/education/western-university-physics-and-astronomy-building/), [Ontario Hall](https://www.residence.uwo.ca/buildings/ontario_hall), [Ivey Business School](https://www.archdaily.com/772124/richard-ivey-building-hariri-pontarini-architects), and the [Western Student Recreation Centre](https://dsai.ca/projects/western-student-recreation-centre/).
 
 ## Avatar
 
@@ -80,17 +82,17 @@ Run `./build/westernsim --benchmark` in a desktop session (or under Xvfb on Linu
 
 | Meshing mode | World triangles | Mean camera-pass triangles | FPS |
 | --- | ---: | ---: | ---: |
-| Exposed faces | 5,064,850 | 391,848.3 | 10.8 |
-| Greedy | 1,599,512 | 93,354.1 | 25.8 |
+| Exposed faces | 5,095,346 | 401,885.2 | 10.3 |
+| Greedy | 1,680,198 | 110,246.0 | 22.3 |
 
-Greedy meshing reduced world triangles by **68.4%** in the [captured Release benchmark](docs/benchmark.txt) on Ubuntu with Mesa llvmpipe CPU rendering.
+Greedy meshing reduced world triangles by **67.0%** in the [captured Release benchmark](docs/benchmark.txt) on Ubuntu with Mesa llvmpipe CPU rendering.
 
 **Résumé bullet**
 
-> Built a C++17 voxel engine that runs on OpenGL and WebGL 2, with fixed-step collision and a 1.79 km-wide Western University campus. Reduced world triangles by 68.4% with greedy meshing and increased measured 720p output from 10.8 to 25.8 FPS on Mesa llvmpipe.
+> Built a C++17 voxel engine that runs on OpenGL and WebGL 2, with fixed-step collision and a 1.79 km-wide Western University campus. Reduced world triangles by 67.0% with greedy meshing and increased measured 720p output from 10.3 to 22.3 FPS on Mesa llvmpipe.
 
 ## Credits
 
 Western Sim uses [GLFW](https://www.glfw.org/), [GLAD](https://github.com/Dav1dde/glad), [GLM](https://github.com/g-truc/glm), [Inter](https://rsms.me/inter/), and [Silkscreen](https://github.com/google/fonts/tree/main/ofl/silkscreen). The GLAD and font notices are included in the source.
 
-Geographic data includes information from the City of London under its [Open Data Licence](https://london.ca/government/open-data) and from © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). The derived geographic data is available in the generated campus headers in this repository.
+Geographic data includes information from the City of London under its [Open Data Licence](https://london.ca/government/open-data) and from © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). Roof profiles contain information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada). The derived geographic data is available in the generated campus headers in this repository.

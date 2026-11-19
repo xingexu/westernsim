@@ -80,18 +80,21 @@ struct Window {
 
 struct Orbit {
     float yaw = -1.11f, pitch = .17f;
+    bool overhead = false;
 
     glm::vec3 horizontal() const { return {std::sin(yaw), 0.f, -std::cos(yaw)}; }
     glm::vec3 right() const { return {std::cos(yaw), 0.f, std::sin(yaw)}; }
 
     Camera view(const World& world, glm::vec3 feet, float aspect) const {
-        const auto direction = horizontal() * std::cos(pitch) + glm::vec3(0,std::sin(pitch),0);
-        const auto focus = feet + glm::vec3(0,.96f,0) + right() * .09f;
-        float distance = 3.4f;
+        const float elevation = overhead ? -1.36f : pitch;
+        const auto direction = horizontal() * std::cos(elevation) + glm::vec3(0,std::sin(elevation),0);
+        const auto focus = feet + glm::vec3(0,playerHeight + .1f,0) + right() * .14f;
+        float distance = overhead ? 48.f : 3.65f;
         if (const auto obstruction = raycast(world,focus,-direction,distance))
             distance = std::max(.12f, obstruction->distance - .22f);
         const auto eye = focus - direction * distance;
-        return {eye,direction,glm::lookAt(eye,eye+direction,{0,1,0}),
+        const auto forward = overhead ? glm::normalize(direction + horizontal()*.25f) : direction;
+        return {eye,forward,glm::lookAt(eye,eye+forward,{0,1,0}),
                 glm::perspective(62.f * pi / 180.f,aspect,.055f,220.f)};
     }
 };
@@ -116,10 +119,10 @@ void checkGraphics() {
     if (error != GL_NO_ERROR) throw std::runtime_error("OpenGL error " + std::to_string(error));
 }
 
-RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const Camera& camera,
+RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const World& world, const Camera& camera,
                       const Player& player, float time, HudState& state) {
     state.stats = renderer.draw(camera,player,width,height,time);
-    hud.draw(width,height,state);
+    hud.draw(width,height,world,camera,state);
     return state.stats;
 }
 
@@ -150,9 +153,10 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
             orbit.yaw += .48f * std::sin(t * 2.f * pi);
             const auto camera = orbit.view(world,player.feet,float(width)/height);
             HudState state;
+            state.position = {player.feet.x,player.feet.z};
             state.heading = orbit.yaw * 180.f / pi;
             state.meshing = mode;
-            stats = drawFrame(renderer,hud,width,height,camera,player,t * 3.f,state);
+            stats = drawFrame(renderer,hud,width,height,world,camera,player,t * 3.f,state);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (frame >= 0) {
@@ -217,7 +221,8 @@ public:
     void look(float dx, float dy) {
         if (!captured_ || overlay()) return;
         orbit_.yaw = std::remainder(orbit_.yaw + dx * .0026f,2*pi);
-        orbit_.pitch = std::clamp(orbit_.pitch - dy * .0026f,-1.33f,1.14f);
+        if (!orbit_.overhead)
+            orbit_.pitch = std::clamp(orbit_.pitch - dy * .0026f,-1.33f,1.14f);
     }
 
 #ifdef __EMSCRIPTEN__
@@ -262,7 +267,7 @@ public:
             fpsTime_ = 0;
             fpsFrames_ = 0;
         }
-        drawFrame(renderer_,hud_,width,height,camera,player_,float(now),state_);
+        drawFrame(renderer_,hud_,width,height,world_,camera,player_,float(now),state_);
 #ifndef __EMSCRIPTEN__
         glfwSwapBuffers(window_);
 #endif
@@ -352,6 +357,7 @@ private:
         if (!overlay()) {
             if (keys_[diagnosticsKey]) state_.diagnostics = !state_.diagnostics;
             if (keys_[GLFW_KEY_R]) resetPlayer();
+            if (keys_[GLFW_KEY_C]) orbit_.overhead = !orbit_.overhead;
             if (keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
         }
         keys_.fill(false);
@@ -360,8 +366,11 @@ private:
     void simulate(double elapsed) {
         glm::vec3 wish{};
         if (captured_) {
-            wish = orbit_.horizontal() * float(held(GLFW_KEY_W) - held(GLFW_KEY_S)) +
-                   orbit_.right() * float(held(GLFW_KEY_D) - held(GLFW_KEY_A));
+            const bool forward = held(GLFW_KEY_UP) || held(GLFW_KEY_W);
+            const bool back = held(GLFW_KEY_DOWN) || held(GLFW_KEY_S);
+            const bool right = held(GLFW_KEY_RIGHT) || held(GLFW_KEY_D);
+            const bool left = held(GLFW_KEY_LEFT) || held(GLFW_KEY_A);
+            wish = orbit_.horizontal() * float(forward - back) + orbit_.right() * float(right - left);
         }
         accumulator_ += elapsed;
         while (accumulator_ >= physicsStep) {
@@ -481,8 +490,9 @@ int main(int argc,char** argv) {
                 auto camera = orbit.view(world,player.feet,float(width)/height);
                 if (args.screenshotAvatar) {
                     player.heading = pi - orbit.yaw + .21f;
-                    const auto target = player.feet + glm::vec3(0,.44f,0);
-                    const auto eye = target - orbit.horizontal()*1.38f + glm::vec3(0,.115f,0);
+                    const auto target = player.feet + glm::vec3(0,playerHeight*.53f,0);
+                    const auto eye = target - orbit.horizontal()*(1.38f*avatarScale) +
+                                     glm::vec3(0,.115f*avatarScale,0);
                     camera = {eye,glm::normalize(target-eye),glm::lookAt(eye,target,{0,1,0}),
                               glm::perspective(44.f*pi/180.f,float(width)/height,.08f,275.f)};
                     renderer.draw(camera,player,width,height,1.2f);
@@ -492,7 +502,7 @@ int main(int argc,char** argv) {
                     state.position = {player.feet.x,player.feet.z};
                     state.heading = orbit.yaw * 180.f / pi;
                     if (state.map) hud.setCampusMap(world);
-                    drawFrame(renderer,hud,width,height,camera,player,1.2f,state);
+                    drawFrame(renderer,hud,width,height,world,camera,player,1.2f,state);
                 }
                 capture(args.screenshot,width,height);
                 checkGraphics();

@@ -93,9 +93,18 @@ void movementAndRaycasting() {
     for (int i = 0; i < 240; ++i) walker.step(world,{1,0,0},true,i == 60);
     check(std::abs(walker.feet.x-(8.5f-.185f-playerRadius)) < .001f,
           "the visible tree trunk blocks walking and jumping");
-    walker.feet = {7.5f,1.f,4.14f};
+    walker.feet = {7.5f,1.f,4.05f};
     for (int i = 0; i < 120; ++i) walker.step(world,{1,0,0},false,false);
     check(walker.feet.x > 9.f, "a walker can pass beside the trunk within its anchor cell");
+
+    Player visitor;
+    visitor.feet = {1.f,1.f,8.f};
+    for (const bool sprint : {false,true,false}) {
+        const float start = visitor.feet.x;
+        for (int i = 0; i < 24; ++i) visitor.step(world,{1,0,0},sprint,false);
+        check(std::abs(visitor.feet.x-start-(sprint ? 3.5f : 2.4f)) < .001f,
+              "movement returns to five times the old walk speed after releasing sprint");
+    }
 }
 
 void persistence() {
@@ -125,14 +134,21 @@ void campus() {
           world.get({bridge.x,10,bridge.y}) == Block::air, "University Drive crosses above the Thames");
     Player bridgeWalker;
     bridgeWalker.feet = {706.5f,10.f,423.5f};
-    for (int i = 0; i < 300; ++i) bridgeWalker.step(world,{-1,0,0},false,false);
+    for (int i = 0; i < 120; ++i) bridgeWalker.step(world,{-1,0,0},false,false);
     check(bridgeWalker.feet.x < 701.f && std::abs(bridgeWalker.feet.y-10.f) < .001f,
           "University Drive's north sidewalk is walkable onto the deck from the east");
     const auto top = [&](glm::ivec2 place) {
         return raycast(world,{place.x+.5f,63.f,place.y+.5f},{0,-1,0},63.f);
     };
     const auto tower = top(memorialTower), spire = top(middlesexTower);
-    check(tower && tower->block.y >= 34 && spire && spire->block.y >= 35, "both tower silhouettes");
+    check(tower && tower->block.y == memorialTowerTop+2 &&
+          spire && spire->block.y == middlesexTowerTop+1, "both tower silhouettes");
+    for (const auto& landmark : landmarks) {
+        const auto p = landmark.roof;
+        check(p.x >= landmark.low.x && p.x < landmark.high.x &&
+              p.z >= landmark.low.y && p.z < landmark.high.y && solid(world.get(p)),
+              "every landmark label attaches to its exterior or plaza");
+    }
     const auto plaza = top(landmarks[4].position);
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
     const auto ontario = landmarks[13].position;

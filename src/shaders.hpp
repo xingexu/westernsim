@@ -31,7 +31,7 @@ in vec4 shadowPoint;
 flat in int tile;
 out vec4 color;
 uniform vec3 eye, lightDirection, clockCenter;
-uniform vec3 palette[44];
+uniform vec3 palette[57];
 uniform float time;
 uniform sampler2DShadow shadowMap;
 
@@ -68,34 +68,47 @@ vec3 masonry(vec2 p, vec3 stone, vec2 repeats, float joint) {
 }
 
 vec3 facade(vec2 p, vec3 tone, int kind) {
-    bool gothic = kind == 38 || kind == 42;
-    bool brick = kind == 35 || kind == 41;
-    bool concrete = kind == 36 || kind == 39;
-    bool bands = kind == 39 || kind == 37;
-    float bayWidth = gothic ? 2. : bands ? 1.25 : kind == 40 ? 1.55 : 1.5;
-    float floorHeight = gothic ? 2.4 : kind == 39 ? 1.8 : 1.65;
+    bool physics = kind == 52;
+    bool gothic = kind == 38 || kind == 42 || kind == 47 || physics || kind == 55;
+    bool brick = kind == 35 || kind == 41 || kind == 44 || kind == 56;
+    bool brutalist = kind == 39 || kind == 40 || kind == 49 || kind == 50 || kind == 54;
+    bool curtainWall = kind == 48 || kind == 53;
+    bool bands = kind == 39 || kind == 37 || kind == 45 || kind == 51 || kind == 54;
+    float bayWidth = gothic ? 2. : bands ? 1.25 : 1.5;
+    float floorHeight = gothic ? 2.25 : 1.65;
+    if (kind == 42) bayWidth = 1.7;
+    if (kind == 49 || kind == 50) bayWidth = 1.1;
+    if (kind == 45 || kind == 48 || kind == 53) floorHeight = 2.;
     vec2 bay = p / vec2(bayWidth,floorHeight);
     vec2 f = fract(bay);
     float weather = hash(vec3(floor(bay),19.));
-    vec3 masonryColor = masonry(p,tone,gothic ? vec2(2.3,3.5) : brick ? vec2(2.7,5.5) : vec2(1.2,2.0),.031);
-    vec3 wall = mix(tone,masonryColor,.73);
-    if (f.y > .88 || (concrete && f.y < .09)) wall *= 1.10;
-    if (kind == 41 && mod(floor(bay.x),5.) == 1.) {
-        wall = mix(wall,vec3(.57,.48,.44),.31);
-    }
-    if (kind == 40 && mod(floor(bay.x),7.) == 1.) {
-        wall = mix(wall,vec3(.38,.28,.50),.67);
-    }
+    vec2 courses = gothic ? vec2(2.3,3.5) : brick ? vec2(2.7,5.5) : vec2(1.2,2.0);
+    vec3 wall = mix(tone,masonry(p,tone,courses,.031),brutalist ? .20 : .73);
+    if (f.y > .88 || (brutalist && f.y < .09)) wall *= 1.10;
+    if ((kind == 41 || kind == 44 || kind == 56) && mod(floor(bay.x),5.) < 2.)
+        wall = mix(wall,tone*vec3(1.18,1.22,1.25),.74);
+    if (kind == 40 && mod(floor(bay.x),7.) == 1.)
+        wall = mix(wall,vec3(.38,.28,.50),.52);
+    if ((kind == 50 || kind == 51) && f.x < .12) wall *= .75;
     float dx = abs(f.x-.5);
     float width = bands ? .43 : gothic ? .31 : .36;
     float upper = gothic ? .84-max(0.,dx-.07)*.66 : .79;
     float bottom = kind == 39 ? .38 : .18;
+    if (kind == 44 || kind == 56) width = .26;
+    if (kind == 49) { width = .30; bottom = .22; upper = .72; }
+    if (kind == 50) { width = .29; bottom = .25; upper = .68; }
+    if (kind == 54 && mod(floor(bay.x),5.) > 2.) width = .15;
+    if (kind == 45 && mod(floor(bay.x),6.) > 3.) width = .22;
+    if (curtainWall) { width = .474; bottom = .085; upper = .93; }
+    if (physics && dx < .10 && abs(f.y-.9) < .048)
+        return tone*(1.03+.22*step(f.y,.90));
     if (f.y < bottom-.04 || f.y > upper+.045 || dx > width+.055) return wall;
     if (f.y < bottom || f.y > upper || dx > width)
         return tone*1.13;
     if ((!gothic && dx < .036) || (gothic && abs(dx-.108) < .025) || abs(f.y-.42) < .022)
         return tone*.67;
     vec3 glass = mix(vec3(.22,.25,.31),vec3(.39,.53,.58),weather);
+    if (curtainWall) glass = mix(vec3(.25,.33,.37),vec3(.39,.56,.61),weather);
     if (f.y > .61 || abs(f.x+f.y*.65-.76) < .065) glass += vec3(.08,.13,.16);
     if (kind == 39 && mod(floor(bay.x),3.) == 1.) glass *= .74;
     return glass;
@@ -141,7 +154,7 @@ void main() {
     if (tile == 10) albedo = masonry(face,albedo,vec2(1.6,3.3),.045);
     if (tile == 14) albedo = masonry(face,albedo,vec2(1.05,2.12),.033);
     if (tile == 18) albedo *= .93 + .11 * hash(vec3(floor(face*.5),11.));
-    if (tile >= 35 && tile <= 42 && abs(n.y) < .5) {
+    if (tile >= 35 && tile != 43 && abs(n.y) < .5) {
         vec2 facadePoint = vec2(point.x*.89+point.z*.455,point.y);
         if (abs(n.x) > .5) facadePoint.x = point.z*.89-point.x*.455;
         albedo = facade((floor(facadePoint*24.)+.5)/24.,albedo,tile);
@@ -167,10 +180,11 @@ void main() {
     }
     if (tile == 24) {
         vec3 relative = texel - clockCenter;
-        vec2 clock = vec2(abs(n.x) > .5 ? relative.z : relative.x,relative.y);
+        vec2 clock = 2.*vec2(abs(n.x) > .5 ? relative.z : relative.x,relative.y);
         if (n.z < -.5 || n.x > .5) clock.x = -clock.x;
         float radius = length(clock);
-        albedo = radius > 1.37 ? palette[14] : radius > 1.19 ? vec3(.78,.67,.46) : palette[24];
+        albedo = radius > 1.37 ? masonry(face,palette[14],vec2(2.3,3.5),.031) :
+                 radius > 1.19 ? vec3(.78,.67,.46) : palette[24];
         bool tick = (abs(clock.x) < .11 || abs(clock.y) < .11) && radius > .96;
         bool hands = (abs(clock.x) < .11 && clock.y > -.13 && clock.y < .83) ||
                      (abs(clock.y+.33*clock.x) < .12 && clock.x > -.15 && clock.x < .59);

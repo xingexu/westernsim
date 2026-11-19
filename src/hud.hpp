@@ -25,7 +25,7 @@ public:
     Hud(const Hud&) = delete;
     Hud& operator=(const Hud&) = delete;
     void setCampusMap(const World& world);
-    void draw(int width, int height, const HudState& state);
+    void draw(int width, int height, const World& world, const Camera& camera, const HudState& state);
 
 private:
     struct Data;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bake a north-up campus from City of London open data and OpenStreetMap."""
+"""Bake a north-up campus from City of London, OpenStreetMap and NRCan data."""
 import argparse
 import json
 import math
@@ -12,10 +12,11 @@ import requests
 from PIL import Image
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
-from scipy.ndimage import distance_transform_edt, gaussian_filter
+from scipy.ndimage import distance_transform_edt, gaussian_filter, median_filter
 from shapely import contains_xy, make_valid, prepare
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
 from shapely.ops import substring, unary_union
+from tifffile import TiffFile
 
 EDGE, CELL = 896, 2
 WEST, NORTH = 476800, 4762550
@@ -23,14 +24,16 @@ SOUTH, EAST = NORTH - EDGE * CELL, WEST + EDGE * CELL
 AREA = box(WEST, SOUTH, EAST, NORTH)
 CITY = "https://maps.london.ca/server/rest/services/OpenData/OpenData_BaseMaps/MapServer"
 OSM = "https://api.openstreetmap.org/api/0.6/map"
+HRDEM = "https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic"
+ELEVATION_ORIGIN = 224
 PROJECT = Transformer.from_crs(4326, 26917, always_xy=True)
 XX, ZZ = np.meshgrid(WEST + (np.arange(EDGE)+.5)*CELL, NORTH - (np.arange(EDGE)+.5)*CELL)
 
 GRASS, WATER, TRAIL, ROAD, WALK, PLAZA, PARKING, STEPS, FIELD, BRIDGE, WOODS = range(11)
 TOWN, STONE, MODERN, UC, MIDDLESEX, WELDON, UCC, ONTARIO, GALLERY, TALL, DELAWARE, IVEY, THAMES, MEDWAY, REC, HOSPITAL = range(1,17)
+SOCIAL, NATURAL, PHYSICS, WESTERN_SCIENCE, ALUMNI, HURON, ELGIN = range(17,24)
 # Anchor points from Western's walking tour and the corresponding mapped building.
-# Heights are visual estimates in two-metre cells. The UC tower is 126 ft.
-# Name, latitude, longitude, facade, height, matching OSM way (when present).
+# Name, latitude, longitude, facade, fallback height in cells, matching OSM way.
 LANDMARKS = [
     ("University College",43.00872,-81.27317,UC,8,118764092),
     ("Middlesex College",43.00935,-81.27031,MIDDLESEX,7,118764099),
@@ -38,19 +41,19 @@ LANDMARKS = [
     ("University Community Centre",43.00871,-81.27612,UCC,10,141710486),
     ("Concrete Beach",43.00848,-81.27547,0,0,237301679),
     ("McIntosh Gallery",43.00949,-81.27344,GALLERY,4,141710481),
-    ("Social Science Centre",43.00935,-81.27549,MODERN,13,141710484),
-    ("Natural Sciences Centre",43.01064,-81.27304,MODERN,8,116779542),
-    ("Physics & Astronomy",43.00972,-81.27258,STONE,8,142286122),
-    ("Western Science Centre",43.00999,-81.27135,MODERN,8,118764093),
+    ("Social Science Centre",43.00935,-81.27549,SOCIAL,13,141710484),
+    ("Natural Sciences Centre",43.01064,-81.27304,NATURAL,8,116779542),
+    ("Physics & Astronomy",43.00972,-81.27258,PHYSICS,8,142286122),
+    ("Western Science Centre",43.00999,-81.27135,WESTERN_SCIENCE,8,118764093),
     ("Thames Hall",43.00689,-81.27449,THAMES,7,118764095),
     ("Delaware Hall",43.00866,-81.26903,DELAWARE,10,141710478),
-    ("Alumni Hall",43.00599,-81.27453,STONE,8,142216959),
+    ("Alumni Hall",43.00599,-81.27453,ALUMNI,8,142216959),
     ("Ontario Hall",43.00052,-81.27909,ONTARIO,12,310134768),
     ("Saugeen-Maitland Hall",43.01155,-81.27889,TALL,21,126668347),
-    ("Huron University",43.00874,-81.27806,STONE,7,126668336),
+    ("Huron University",43.00874,-81.27806,HURON,7,126668336),
     ("Ivey Business School",43.00469,-81.27831,IVEY,8,0),
     ("Student Recreation Centre",43.00317,-81.27406,REC,9,310132539),
-    ("Elgin Hall",43.00827,-81.26494,DELAWARE,7,142286099),
+    ("Elgin Hall",43.00827,-81.26494,ELGIN,7,142286099),
     ("Medway Hall",43.00820,-81.26353,MEDWAY,7,0),
 ]
 # Additional exterior treatments that don't need a numbered map pin.
@@ -61,13 +64,17 @@ SECONDARY = [
     ("Amit Chakma Engineering",43.00437,-81.27636,MODERN,9,626520018),
     ("Lawson Hall",43.00897,-81.27388,STONE,7,237302165),
 ]
+OUTDOOR_LANDMARKS = [
+    ("University Bridge",43.00771,-81.26796,24,5),
+    ("UC Hill",43.00801,-81.27153,12,15),
+]
 MAP_LABELS = [
     ("WESTERN ROAD",43.01290,-81.27730), ("THAMES RIVER",43.0045,-81.2696),
-    ("UNIVERSITY BRIDGE",43.00771,-81.26796), ("UC HILL",43.00801,-81.27153),
-]
+] + [(name.upper(),lat,lon) for name,lat,lon,*_ in OUTDOOR_LANDMARKS]
 SPAWN = 43.00832, -81.27244
-MEMORIAL_TOWER = 43.00863, -81.27326
-CLOCK_TOWER = 43.00918, -81.27017
+# Centres of the elevated tower returns in the LiDAR surface.
+MEMORIAL_TOWER = 43.008429, -81.273101
+CLOCK_TOWER = 43.009408, -81.270283
 
 
 def xy(lat, lon):
@@ -110,6 +117,37 @@ def city(cache, layer):
             raise RuntimeError(f"City layer {layer} did not advance")
     path.write_text(json.dumps(features, separators=(",",":")))
     return features
+
+
+def hrdem(cache, layer):
+    path = cache / f"nrcan-{layer}.tif"
+    download = not path.is_file()
+    if download:
+        crs = "urn:ogc:def:crs:EPSG::26917"
+        origin_x, origin_y = WEST+CELL//2, NORTH-CELL//2
+        reply = requests.get(HRDEM, params={
+            "SERVICE":"WCS", "VERSION":"1.1.1", "REQUEST":"GetCoverage",
+            "IDENTIFIER":layer, "FORMAT":"image/geotiff",
+            "BOUNDINGBOX":f"{origin_x},{SOUTH+CELL//2},{EAST-CELL//2},{origin_y},{crs}",
+            "GRIDBASECRS":crs, "GRIDORIGIN":f"{origin_x},{origin_y}", "GRIDOFFSETS":f"{CELL},{-CELL}",
+        }, timeout=90)
+        reply.raise_for_status()
+        pending = path.with_suffix(".download")
+        pending.write_bytes(reply.content)
+    else:
+        pending = path
+    with TiffFile(pending) as image:
+        page = image.pages[0]
+        geo = page.geotiff_tags
+        if (page.shape != (EDGE,EDGE) or geo["ProjectedCSTypeGeoKey"] != 26917 or
+                geo["ModelPixelScale"][:2] != [CELL,CELL] or geo["ModelTiepoint"][3:5] != [WEST,NORTH]):
+            raise RuntimeError(f"Unexpected NRCan {layer} grid")
+        heights = page.asarray()
+        nodata = float(page.tags[42113].value)
+        heights[heights == nodata] = np.nan
+    if download:
+        pending.replace(path)
+    return heights
 
 
 def polygon(rings):
@@ -182,7 +220,7 @@ def elevation(layers):
     values = LinearNDInterpolator(coords[:,:2],coords[:,2])(XX,ZZ)
     missing = np.isnan(values)
     values[missing] = NearestNDInterpolator(coords[:,:2],coords[:,2])(XX[missing],ZZ[missing])
-    return np.clip(np.rint((gaussian_filter(values,.65) - 224)/CELL),2,35).astype(np.uint8)
+    return np.clip(np.rint((gaussian_filter(values,.65) - ELEVATION_ORIGIN)/CELL),2,35).astype(np.uint8)
 
 
 def surfaces(layers, osm, ground):
@@ -269,14 +307,35 @@ def surfaces(layers, osm, ground):
     return surface, bridges
 
 
-def buildings(layers, osm, ground, surface):
+def measured_roof(terrain, pixels, depth, dsm, dtm, fallback):
+    relief = dsm-dtm
+    valid = pixels & (relief >= 2.4) & (relief < 90.)
+    # A new or demolished footprint may not match the LiDAR acquisition.
+    if np.count_nonzero(valid) < .55*np.count_nonzero(pixels):
+        return fallback
+    core = valid & (depth > 1.4)
+    if not np.any(core):
+        core = valid
+    # Match the LiDAR vertical datum to the City terrain locally. Extend
+    # neighbouring samples onto mixed pixels along the footprint perimeter.
+    datum_offset = np.median(ELEVATION_ORIGIN+CELL*terrain[core].astype(float)-dtm[core])
+    source = core | (valid & (dsm >= median_filter(dsm,size=3)-CELL))
+    nearest = distance_transform_edt(~source,return_distances=False,return_indices=True)
+    heights = dsm[tuple(nearest)]
+    roof = np.rint((median_filter(heights,size=3)+datum_offset-ELEVATION_ORIGIN)/CELL)
+    return np.maximum(terrain+2,np.clip(roof,0,58)).astype(np.uint8)
+
+
+def buildings(layers, osm, ground, dsm, dtm):
     style = np.zeros((EDGE,EDGE),dtype=np.uint8)
     top = np.zeros_like(style)
     by_id = {i:(t,p) for i,t,p in osm}
     city_polys = [polygon(f["geometry"]["rings"]) for f in layers[3]]
     assignments = {}
+    landmark_outlines = {}
     for name,lat,lon,kind,height,ident in LANDMARKS + SECONDARY:
         if not kind:
+            landmark_outlines[name] = make_valid(Polygon(by_id[ident][1]))
             continue
         p = Point(xy(lat,lon))
         if ident and ident in by_id:
@@ -289,6 +348,7 @@ def buildings(layers, osm, ground, surface):
             matching = [min(range(len(city_polys)),key=lambda i: city_polys[i].distance(p))]
         for index in matching:
             assignments[index] = (kind,height)
+        landmark_outlines[name] = unary_union([city_polys[index] for index in matching])
         print(f"{name:28} {cell(lat,lon)} | {len(matching)} surveyed polygons")
     for index,g in enumerate(city_polys):
         if g.area < 16:
@@ -308,7 +368,8 @@ def buildings(layers, osm, ground, surface):
                 rise = np.clip((depth/1.7).astype(np.int8),0,roof_rise)
         if material == WELDON:
             rise = np.where(depth > 2,0,-2)
-        roof = np.maximum(terrain+2, base + height + rise)
+        fallback = np.maximum(terrain+2, base + height + rise)
+        roof = measured_roof(terrain,pixels,depth,dsm[rect],dtm[rect],fallback)
         overwrite = pixels & ((top[rect] < roof) | (style[rect] == 0))
         top[rect][overwrite] = roof[overwrite]
         style[rect][overwrite] = material
@@ -324,8 +385,41 @@ def buildings(layers, osm, ground, surface):
         pixels &= s == 0
         height = int(tags["building:levels"])*2 if tags.get("building:levels","").isdigit() else 7
         s[pixels] = MODERN
-        t[pixels] = np.clip(ground[rect][pixels]+height,0,58)
-    return style, top
+        terrain = ground[rect]
+        depth = distance_transform_edt(np.pad(pixels,1))[1:-1,1:-1]
+        roof = measured_roof(terrain,pixels,depth,dsm[rect],dtm[rect],np.clip(terrain+height,0,58))
+        t[pixels] = roof[pixels]
+
+    # Preserve the measured tower heights while replacing the crowns with
+    # battlements and a stepped spire that read clearly at voxel resolution.
+    tower_tops = {}
+    for kind,coords in ((UC,MEMORIAL_TOWER),(MIDDLESEX,CLOCK_TOWER)):
+        x,z = cell(*coords)
+        rect = np.s_[z-4:z+5,x-4:x+5]
+        crown = np.s_[z-1:z+2,x-1:x+2]
+        relief = dsm[crown]-dtm[crown]
+        tower_tops[kind] = int(np.median(ground[crown])+np.rint(np.nanmax(relief)/CELL))
+        heights = top[rect]
+        eaves = int(np.median(heights[style[rect] == kind]))
+        np.minimum(heights,eaves,out=heights,where=(style[rect] == kind))
+
+    areas = []
+    for name,lat,lon,kind,*_ in LANDMARKS + SECONDARY:
+        rect,pixels = mask(landmark_outlines[name])
+        zs,xs = rect
+        heights = top if kind else ground
+        x,z = cell(lat,lon)
+        if kind:
+            pixels &= heights[rect] >= np.quantile(heights[rect][pixels],.65)
+        pz,px = np.nonzero(pixels)
+        closest = np.argmin((px+xs.start-x)**2+(pz+zs.start-z)**2)
+        ax,az = int(px[closest]+xs.start),int(pz[closest]+zs.start)
+        ay = int(heights[az,ax])
+        if kind in tower_tops:
+            ax,az = cell(*(MEMORIAL_TOWER if kind == UC else CLOCK_TOWER))
+            ay = tower_tops[kind]
+        areas.append((xs.start,zs.start,xs.stop,zs.stop,ax,ay,az))
+    return style, top, areas, tower_tops
 
 
 def trees(layers, ground, surface, style):
@@ -350,7 +444,7 @@ def trees(layers, ground, surface, style):
     return result
 
 
-def write_header(path, ground, surface, style, top, plants, bridges):
+def write_header(path, ground, surface, style, top, plants, bridges, areas, tower_tops):
     cells = (ground.astype(np.uint32) | (surface.astype(np.uint32)<<6)
              | (top.astype(np.uint32)<<10) | (style.astype(np.uint32)<<16)).ravel()
     cuts = np.r_[0, np.flatnonzero(cells[:-1]!=cells[1:])+1, cells.size]
@@ -369,27 +463,39 @@ def write_header(path, ground, surface, style, top, plants, bridges):
         return f"{{{x},{z}}}"
     def labels(rows):
         return "\n".join(f'    {{"{name}",{position(lat,lon)}}},' for name,lat,lon,*_ in rows)
+    for _,lat,lon,rx,rz in OUTDOOR_LANDMARKS:
+        x,z = cell(lat,lon)
+        height = max(ground[z,x],bridges[z,x])
+        areas.append((x-rx,z-rz,x+rx+1,z+rz+1,x,int(height),z))
+    entries = "\n".join(
+        f'    {{"{name}",{position(lat,lon)},{{{x0},{z0}}},{{{x1},{z1}}},{{{ax},{ay},{az}}}}},'
+        for (name,lat,lon,*_), (x0,z0,x1,z1,ax,ay,az) in zip(LANDMARKS + SECONDARY + OUTDOOR_LANDMARKS,areas))
     path.with_name("campus_landmarks.hpp").write_text(f"""// Generated by tools/bake_campus.py.
 #pragma once
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 
 namespace wsim {{
 
-struct Landmark {{ const char* name; glm::ivec2 position; }};
+struct Landmark {{ const char* name; glm::ivec2 position, low, high; glm::ivec3 roof; }};
+struct MapLabel {{ const char* name; glm::ivec2 position; }};
 inline constexpr Landmark landmarks[] = {{
-{labels(LANDMARKS)}
+{entries}
 }};
-inline constexpr Landmark mapLabels[] = {{
+inline constexpr int mapLandmarkCount = {len(LANDMARKS)};
+inline constexpr MapLabel mapLabels[] = {{
 {labels(MAP_LABELS)}
 }};
 inline constexpr glm::ivec2 campusSpawn{position(*SPAWN)};
 inline constexpr glm::ivec2 memorialTower{position(*MEMORIAL_TOWER)};
 inline constexpr glm::ivec2 middlesexTower{position(*CLOCK_TOWER)};
+inline constexpr int memorialTowerTop = {tower_tops[UC]};
+inline constexpr int middlesexTowerTop = {tower_tops[MIDDLESEX]};
 inline constexpr int surveyEdge = {EDGE};
 
 }} // namespace wsim
 """)
-    path.write_text(f"""// Generated by tools/bake_campus.py from City of London and OpenStreetMap data.
+    path.write_text(f"""// Generated by tools/bake_campus.py from City of London, OpenStreetMap and NRCan data.
 #pragma once
 #include <cstdint>
 
@@ -419,13 +525,15 @@ def main():
     ids = [3,5,11,30,34,37,38,43,45,47,49]
     with ThreadPoolExecutor(max_workers=5) as workers:
         future = workers.submit(lambda:list(osm_data(args.cache)))
+        dsm = workers.submit(hrdem,args.cache,"dsm")
+        dtm = workers.submit(hrdem,args.cache,"dtm")
         layers = dict(zip(ids,workers.map(lambda layer:city(args.cache,layer),ids)))
         osm = future.result()
     print("Interpolating surveyed elevations")
     ground = elevation(layers)
     print("Rasterizing streets, paths, and the Thames")
     surface, bridges = surfaces(layers,osm,ground)
-    style,top = buildings(layers,osm,ground,surface)
+    style,top,areas,tower_tops = buildings(layers,osm,ground,dsm.result(),dtm.result())
     plants = trees(layers,ground,surface,style)
     if args.preview:
         ground_color = np.array([[129,155,91],[64,113,143],[157,127,84],[108,108,115],
@@ -443,7 +551,8 @@ def main():
                     ("Memorial Tower",*MEMORIAL_TOWER),("Middlesex clock",*CLOCK_TOWER)]:
         x,z = cell(lat,lon)
         print(name,x,z,"terrain",ground[z,x],"surface",surface[z,x],"building",style[z,x],"top",top[z,x])
-    write_header(Path(__file__).resolve().parents[1]/"src/campus_survey.hpp",ground,surface,style,top,plants,bridges)
+    write_header(Path(__file__).resolve().parents[1]/"src/campus_survey.hpp",
+                 ground,surface,style,top,plants,bridges,areas,tower_tops)
 
 
 if __name__ == "__main__":

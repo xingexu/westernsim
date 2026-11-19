@@ -55,6 +55,11 @@
       Module._westernsim_look(event.movementX, event.movementY);
     }
   }, true);
+  document.addEventListener("keydown", (event) => {
+    if (document.pointerLockElement === canvas && event.key.startsWith("Arrow")) {
+      event.preventDefault();
+    }
+  });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("webglcontextlost", () => fail("The browser lost its graphics context. Reload to resume."));
   window.addEventListener("error", (event) => {
