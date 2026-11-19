@@ -1,8 +1,6 @@
 #include "scenery.hpp"
 
-#include <glm/geometric.hpp>
-#include <array>
-#include <cmath>
+#include <utility>
 
 namespace wsim {
 namespace {
@@ -24,49 +22,32 @@ void box(Mesh& mesh, glm::vec3 center, glm::vec3 size, Block block) {
     }
 }
 
-void foliage(Mesh& mesh, glm::vec3 center, glm::vec3 radius, Block leaf, float turn) {
-    constexpr int sides = 9;
-    constexpr float tau = 6.2831853f;
-    const auto material = static_cast<float>(leaf);
-    const auto triangle = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c) {
-        const auto first = static_cast<std::uint32_t>(mesh.vertices.size());
-        // Smooth the individual crown lobes while retaining their low-poly silhouettes.
-        for (const auto p : {a,b,c})
-            mesh.vertices.push_back({center+p,glm::normalize(p/(radius*radius)),material});
-        const bool outward = glm::dot(glm::cross(b-a,c-a),a+b+c) > 0;
-        mesh.indices.insert(mesh.indices.end(),{first,first+(outward ? 1u : 2u),first+(outward ? 2u : 1u)});
-    };
-    const auto ring = [&](int i, bool upper) {
-        const float a = turn + tau*(i+(upper ? .5f : 0.f))/sides;
-        const float y = upper ? .44f : -.42f;
-        return glm::vec3(std::cos(a)*.88f,y,std::sin(a)*.88f)*radius;
-    };
-    const glm::vec3 top(0,radius.y,0), bottom(0,-radius.y,0);
-    for (int i = 0; i < sides; ++i) {
-        const auto low = ring(i,false), nextLow = ring(i+1,false);
-        const auto high = ring(i,true), nextHigh = ring(i+1,true);
-        triangle(low,nextLow,bottom);
-        triangle(low,high,nextLow);
-        triangle(high,nextHigh,nextLow);
-        triangle(high,top,nextHigh);
-    }
-}
-
 } // namespace
 
 void appendScenery(Mesh& mesh, glm::ivec3 anchor, Block block) {
     const auto at = glm::vec3(anchor) + glm::vec3(.5f,0,.5f);
     const auto piece = [&](glm::vec3 center, glm::vec3 size, Block material) {
-        box(mesh,at+center,size,material);
+        box(mesh,at+center*.5f,size*.5f,material);
     };
     if (canopy(block)) {
         const auto leaf = block == Block::canopyGold ? Block::goldLeaves :
                           block == Block::canopyCopper ? Block::redLeaves : Block::leaves;
-        const float turn = ((anchor.x*31+anchor.z*19)%19)*.25f;
-        foliage(mesh,at+glm::vec3(0,.24f,-.24f),{2.06f,1.88f,1.79f},leaf,turn);
-        foliage(mesh,at+glm::vec3(-.95f,-.56f,.56f),{1.58f,1.34f,1.41f},leaf,turn+1.f);
-        foliage(mesh,at+glm::vec3(1.06f,-.23f,.60f),{1.64f,1.49f,1.42f},leaf,turn+.5f);
-        foliage(mesh,at+glm::vec3(-.38f,.76f,-.62f),{1.45f,1.44f,1.51f},leaf,turn+.8f);
+        const int pattern = anchor.x*31+anchor.z*19;
+        const float flip = pattern%2 == 0 ? 1.f : -1.f;
+        const float span = .64f + .11f*(pattern%5);
+        const float height = 1.65f + .31f*(pattern%5);
+        const auto wood = pattern%7 == 1 ? Block::birch : Block::cedar;
+        const float diameter = .19f + .045f*(pattern%5);
+        box(mesh,at+glm::vec3(0,height*.5f,0),{diameter,height,diameter},wood);
+        const auto crown = [&](glm::vec3 center, glm::vec3 size) {
+            box(mesh,at+center*span+glm::vec3(0,height,0),size*span,leaf);
+        };
+        crown({0,-.38f,0},{1.42f,.90f,1.5f});
+        crown({0,.29f,-.22f},{2.50f,1.20f,2.1f});
+        crown({flip*.19f,1.12f,-.27f},{1.64f,.64f,1.66f});
+        crown({flip*.40f,1.54f,-.47f},{.97f,.31f,1.07f});
+        crown({flip*.99f,-.24f,.44f},{.93f,1.07f,1.12f});
+        crown({-flip*.98f,.08f,.49f},{1.14f,1.03f,1.59f});
     } else if (block == Block::lampPost) {
         piece({0,.12f,0},{.52f,.24f,.52f},Block::limestone);
         piece({0,.30f,0},{.32f,.20f,.32f},Block::iron);
@@ -92,8 +73,14 @@ void appendScenery(Mesh& mesh, glm::ivec3 anchor, Block block) {
         piece({0,.19f,0},{1.56f,.38f,.90f},Block::sandstone);
         piece({0,.38f,0},{1.68f,.15f,1.02f},Block::limestone);
         for (const float x : {-.48f,0.f,.48f}) {
-            foliage(mesh,at+glm::vec3(x,.51f,0),{.32f,.38f,.38f},Block::needles,x);
-            foliage(mesh,at+glm::vec3(x-.11f,.70f,.11f),{.13f,.16f,.14f},Block::flowers,x);
+            piece({x,.53f,0},{.37f,.38f,.61f},Block::needles);
+            piece({x-.11f,.72f,.11f},{.15f,.12f,.18f},Block::flowers);
+        }
+    } else if (block == Block::wildflowers) {
+        for (const auto x : {-.54f,.16f,.61f}) {
+            const float z = x*x-.35f;
+            piece({x,.09f,z},{.028f,.18f,.033f},Block::needles);
+            piece({x,.19f,z},{.11f,.047f,.10f},x > 0 ? Block::flowers : Block::flagWhite);
         }
     }
 }

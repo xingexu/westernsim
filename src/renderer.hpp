@@ -25,9 +25,7 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     void rebuild(const World& world, Meshing mode);
-    void update(const World& world, glm::ivec3 edited);
-    RenderStats draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                     int width, int height, float time);
+    RenderStats draw(const Camera& camera, const Player& player, int width, int height, float time);
 
 private:
     struct Data;
@@ -35,6 +33,5 @@ private:
 };
 
 unsigned shaderProgram(const char* vertex, const char* fragment);
-glm::vec3 blockColor(Block block);
 
 } // namespace wsim

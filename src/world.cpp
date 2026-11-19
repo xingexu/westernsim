@@ -22,8 +22,10 @@ int blockIndex(glm::ivec3 p) {
 } // namespace
 
 World::World(int edge) : edge_(edge) {
-    if (edge < chunkSize || edge > 256 || edge % chunkSize != 0)
-        throw std::invalid_argument("World edge must be a multiple of 16 from 16 to 256");
+    if (edge < chunkSize || edge > worldSize || edge % chunkSize != 0)
+        throw std::invalid_argument("World edge must be a multiple of 16 within the campus bounds");
+    const auto span = edge / chunkSize;
+    chunks_.reserve(static_cast<std::size_t>(span * span * (worldHeight / chunkSize)));
     for (int y = 0; y < worldHeight; y += chunkSize)
         for (int z = 0; z < edge; z += chunkSize)
             for (int x = 0; x < edge; x += chunkSize)
@@ -109,7 +111,7 @@ std::optional<World> World::load(const std::filesystem::path& path, std::string&
     std::array<char, saveHeader.size()> header{};
     in.read(header.data(), header.size());
     const int span = in.get();
-    if (header != saveHeader || span < 1 || span > 16) {
+    if (header != saveHeader || span < 1 || span > worldSize / chunkSize) {
         error = "Unrecognized world format";
         return std::nullopt;
     }

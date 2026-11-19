@@ -6,9 +6,6 @@
   let ready = false;
   let entered = false;
   let broken = false;
-  let storage = false;
-  let saving = false;
-  let changed = false;
 
   function fail(message) {
     if (broken) return;
@@ -20,49 +17,14 @@
     play.disabled = false;
   }
 
-  function flushSave() {
-    if (!storage) {
-      Module._westernsim_storage_result(0);
-      return;
-    }
-    changed = true;
-    if (saving) return;
-    saving = true;
-    changed = false;
-    Module.FS.syncfs(false, (error) => {
-      saving = false;
-      if (error) storage = false;
-      if (changed && storage) flushSave();
-      else Module._westernsim_storage_result(Number(storage));
-    });
-  }
-
-  function prepareStorage() {
-    const { FS, addRunDependency, removeRunDependency } = Module;
-    FS.mkdir("/saves");
-    addRunDependency("campus-saves");
-    try {
-      FS.mount(FS.filesystems.IDBFS, {}, "/saves");
-      FS.syncfs(true, (error) => {
-        storage = !error;
-        removeRunDependency("campus-saves");
-      });
-    } catch {
-      removeRunDependency("campus-saves");
-    }
-  }
-
   window.Module = {
     canvas,
-    preRun: [prepareStorage],
-    westernSimFlush: flushSave,
     westernSimFailed: fail,
     westernSimReady() {
       if (broken) return;
       ready = true;
       launcher.classList.add("ready");
-      status.textContent = storage ? "Explore campus with a keyboard and mouse." :
-        "Explore with a keyboard and mouse. Browser storage is unavailable.";
+      status.textContent = "Walk around campus and see its buildings from the outside.";
       play.disabled = false;
     },
     onAbort() { fail("The game could not start. Reload to try again."); },

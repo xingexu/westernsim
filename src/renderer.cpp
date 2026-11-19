@@ -17,18 +17,21 @@
 namespace wsim {
 namespace {
 
-constexpr int shadowSize = 1536;
-const glm::vec3 sun = glm::normalize(glm::vec3(.53f,.69f,.49f));
+constexpr int shadowSize = 896;
+const glm::vec3 sun = glm::normalize(glm::vec3(.58f,.72f,.38f));
 constexpr glm::vec3 rgb(unsigned hex) {
     return {((hex >> 16) & 255) / 255.f, ((hex >> 8) & 255) / 255.f, (hex & 255) / 255.f};
 }
-const std::array<glm::vec3,static_cast<std::size_t>(Block::lampPost)> colors{
-    rgb(0x000000), rgb(0x83ac57), rgb(0x927256), rgb(0x7d95a3), rgb(0xe1c698),
-    rgb(0x856045), rgb(0x4d824c), rgb(0xe8dac2), rgb(0x82a94c), rgb(0xe9dbbd),
-    rgb(0xbe7663), rgb(0xbd8c65), rgb(0x45998e), rgb(0xffd080),
-    rgb(0xc7b69c), rgb(0x506578), rgb(0x4d6273), rgb(0x909595), rgb(0xc3c0b4),
-    rgb(0x4e9485), rgb(0xe5ab44), rgb(0xd47d49), rgb(0x665584),
-    rgb(0x82709a), rgb(0x61506b), rgb(0x414659), rgb(0xb83e4c), rgb(0xdcd8bf), rgb(0x65753e)
+const std::array<glm::vec3,static_cast<std::size_t>(Block::count)> colors{
+    rgb(0x000000), rgb(0x91ad61), rgb(0x937259), rgb(0x879099), rgb(0xc5aa7d),
+    rgb(0x76503c), rgb(0x426a47), rgb(0xd6c4a4), rgb(0x658b4f), rgb(0xdfcfac),
+    rgb(0xb9765c), rgb(0xb68863), rgb(0x538a9b), rgb(0xffd590),
+    rgb(0xc4ae94), rgb(0x61606d), rgb(0x678397), rgb(0x898388), rgb(0xccbeb1),
+    rgb(0x568978), rgb(0xd3a65d), rgb(0xc48356), rgb(0x666387),
+    rgb(0x857c9a), rgb(0x454050), rgb(0x42424d), rgb(0xb84251), rgb(0xf4e8cf), rgb(0xa977a9),
+    {}, {}, {}, {}, {}, {},
+    rgb(0xac7965), rgb(0xc9b89b), rgb(0xb7a99e), rgb(0xc9b499), rgb(0xc4b5a6),
+    rgb(0xbca998), rgb(0xb47f66), rgb(0xad9a83), {}
 };
 
 GLuint compile(GLenum type, const char* source) {
@@ -54,6 +57,43 @@ struct Program {
     ~Program() { glDeleteProgram(id); }
     GLint uniform(const char* name) const { return glGetUniformLocation(id, name); }
     void use() const { glUseProgram(id); }
+};
+
+struct PixelFrame {
+    GLuint framebuffer = 0, color = 0, depth = 0;
+    int width = 0, height = 0;
+
+    PixelFrame() {
+        glGenFramebuffers(1,&framebuffer);
+        glGenTextures(1,&color);
+        glGenRenderbuffers(1,&depth);
+    }
+    ~PixelFrame() {
+        glDeleteFramebuffers(1,&framebuffer);
+        glDeleteTextures(1,&color);
+        glDeleteRenderbuffers(1,&depth);
+    }
+    void bind(int outputWidth, int outputHeight) {
+        const auto area = static_cast<double>(outputWidth) * outputHeight;
+        const auto scale = std::max(2,static_cast<int>(std::ceil(std::sqrt(area/165000.))));
+        const int w = std::max(1,outputWidth/scale), h = std::max(1,outputHeight/scale);
+        glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);
+        if (width != w || height != h) {
+            width = w;
+            height = h;
+            glBindTexture(GL_TEXTURE_2D,color);
+            glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+            glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,color,0);
+            glBindRenderbuffer(GL_RENDERBUFFER,depth);
+            glRenderbufferStorage(GL_RENDERBUFFER,GL_DEPTH_COMPONENT24,w,h);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER,depth);
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                throw std::runtime_error("Could not create the pixel-art framebuffer");
+        }
+        glViewport(0,0,width,height);
+    }
 };
 
 void matrix(GLint location, const glm::mat4& m) {
@@ -184,28 +224,24 @@ unsigned shaderProgram(const char* vertex, const char* fragment) {
     return program;
 }
 
-glm::vec3 blockColor(Block block) { return colors[static_cast<std::size_t>(block)]; }
-
 struct Renderer::Data {
     Program world{shaders::worldVertex, shaders::worldFragment};
     Program sky{shaders::skyVertex, shaders::skyFragment};
     Program depth{shaders::depthVertex, shaders::depthFragment};
-    Program line{shaders::lineVertex, shaders::lineFragment};
     Program avatar{shaders::avatarVertex, shaders::avatarFragment};
+    Program present{shaders::skyVertex, shaders::pixelFragment};
     const GLint worldView = world.uniform("viewProjection"), worldModel = world.uniform("model");
     const GLint worldLight = world.uniform("lightMatrix"), worldEye = world.uniform("eye");
     const GLint worldTime = world.uniform("time");
     const GLint skyInverse = sky.uniform("inverseViewProjection"), skyEye = sky.uniform("eye");
     const GLint skyTime = sky.uniform("time"), depthModel = depth.uniform("model");
-    const GLint depthLight = depth.uniform("lightMatrix"), lineMatrix = line.uniform("transform");
+    const GLint depthLight = depth.uniform("lightMatrix");
     const GLint avatarTransform = avatar.uniform("transform");
-    GLuint emptyVao = 0, lineVao = 0, lineBuffer = 0;
+    GLuint emptyVao = 0;
     GLuint shadowBuffer = 0, shadowMap = 0;
     std::vector<GpuMesh> chunks;
     std::array<GpuMesh,avatarPartCount> avatarMeshes;
-    Meshing mode = Meshing::greedy;
-    glm::mat4 lightMatrix{1.f};
-    std::vector<std::size_t> shadowChunks;
+    PixelFrame pixels;
     RenderStats totals;
 
     Data() {
@@ -213,33 +249,21 @@ struct Renderer::Data {
             avatarMeshes[i].upload(westernAvatarMesh(static_cast<AvatarPart>(i)));
         world.use();
         vector(world.uniform("lightDirection"), sun);
-        vector(world.uniform("clockCenter"), campusClockCenter());
         glUniform3fv(world.uniform("palette[0]"), static_cast<GLsizei>(colors.size()),
                      glm::value_ptr(colors.front()));
         glUniform1i(world.uniform("shadowMap"), 0);
         sky.use();
         vector(sky.uniform("lightDirection"), sun);
+        present.use();
+        glUniform1i(present.uniform("scene"),0);
 
         glGenVertexArrays(1, &emptyVao);
-        glGenVertexArrays(1, &lineVao);
-        glGenBuffers(1, &lineBuffer);
-        glBindVertexArray(lineVao);
-        glBindBuffer(GL_ARRAY_BUFFER, lineBuffer);
-        constexpr std::array<float,72> edges{
-            0,0,0, 1,0,0, 1,0,0, 1,0,1, 1,0,1, 0,0,1, 0,0,1, 0,0,0,
-            0,1,0, 1,1,0, 1,1,0, 1,1,1, 1,1,1, 0,1,1, 0,1,1, 0,1,0,
-            0,0,0, 0,1,0, 1,0,0, 1,1,0, 1,0,1, 1,1,1, 0,0,1, 0,1,1
-        };
-        glBufferData(GL_ARRAY_BUFFER, sizeof(edges), edges.data(), GL_STATIC_DRAW);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
-
         glGenTextures(1, &shadowMap);
         glBindTexture(GL_TEXTURE_2D, shadowMap);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadowSize, shadowSize, 0,
                      GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -259,21 +283,14 @@ struct Renderer::Data {
         glDeleteFramebuffers(1, &shadowBuffer);
         glDeleteTextures(1, &shadowMap);
         glDeleteVertexArrays(1, &emptyVao);
-        glDeleteVertexArrays(1, &lineVao);
-        glDeleteBuffers(1, &lineBuffer);
     }
 
     void recount() {
         totals = {};
-        shadowChunks.clear();
-        const Frustum light{lightMatrix};
-        for (std::size_t i = 0; i < chunks.size(); ++i) {
-            const auto& chunk = chunks[i];
+        for (const auto& chunk : chunks) {
             if (!chunk.count) continue;
             ++totals.totalChunks;
             totals.totalTriangles += chunk.count / 3;
-            if (light.intersects(chunk.low,chunk.high))
-                shadowChunks.push_back(i);
         }
     }
 };
@@ -283,11 +300,8 @@ Renderer::~Renderer() = default;
 
 void Renderer::rebuild(const World& world, Meshing mode) {
     auto& d = *data_;
-    d.mode = mode;
-    const float range = world.edge() * .69f;
-    const glm::vec3 middle{world.edge() * .5f, 15.f, world.edge() * .5f};
-    d.lightMatrix = glm::ortho(-range, range, -range, range, 1.f, 390.f) *
-                    glm::lookAt(middle + sun * 170.f, middle, {0,1,0});
+    d.world.use();
+    vector(d.world.uniform("clockCenter"),campusClockCenter(world));
     d.chunks.resize(world.chunks().size());
     for (std::size_t i = 0; i < d.chunks.size(); ++i) {
         const auto& chunk = world.chunks()[i];
@@ -296,19 +310,15 @@ void Renderer::rebuild(const World& world, Meshing mode) {
     d.recount();
 }
 
-void Renderer::update(const World& world, glm::ivec3 edited) {
-    auto& d = *data_;
-    for (const auto i : world.affectedChunks(edited))
-        d.chunks[i].upload(meshChunk(world, world.chunks()[i], d.mode));
-    d.recount();
-}
-
-RenderStats Renderer::draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                           int width, int height, float time) {
+RenderStats Renderer::draw(const Camera& camera, const Player& player, int width, int height, float time) {
     auto& d = *data_;
     const glm::mat4 identity{1.f};
     const auto viewProjection = camera.projection * camera.view;
     const auto pose = westernAvatarPose(player);
+    const glm::vec3 lightFocus = glm::floor(player.feet * 4.f) * .25f;
+    const auto lightMatrix = glm::ortho(-42.f,42.f,-42.f,42.f,1.f,140.f) *
+                             glm::lookAt(lightFocus+sun*70.f,lightFocus,{0,1,0});
+    const Frustum light{lightMatrix};
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -316,16 +326,16 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
     glViewport(0, 0, shadowSize, shadowSize);
     glClear(GL_DEPTH_BUFFER_BIT);
     d.depth.use();
-    matrix(d.depthLight, d.lightMatrix);
+    matrix(d.depthLight, lightMatrix);
     matrix(d.depthModel, identity);
-    for (const auto i : d.shadowChunks) d.chunks[i].draw();
+    for (const auto& chunk : d.chunks)
+        if (chunk.count && light.intersects(chunk.low,chunk.high)) chunk.draw();
     for (std::size_t i = 0; i < pose.size(); ++i) {
         matrix(d.depthModel, pose[i]);
         d.avatarMeshes[i].draw();
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER,0);
-    glViewport(0, 0, width, height);
+    d.pixels.bind(width,height);
     glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -342,7 +352,7 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, d.shadowMap);
     matrix(d.worldView, viewProjection);
-    matrix(d.worldLight, d.lightMatrix);
+    matrix(d.worldLight, lightMatrix);
     matrix(d.worldModel, identity);
     vector(d.worldEye, camera.eye);
     glUniform1f(d.worldTime, time);
@@ -361,14 +371,15 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
         matrix(d.avatarTransform, viewProjection*pose[i]);
         d.avatarMeshes[i].draw();
     }
-    if (selected) {
-        d.line.use();
-        const auto model = glm::scale(glm::translate(identity, glm::vec3(selected->block) - .005f),
-                                      glm::vec3(1.01f));
-        matrix(d.lineMatrix, viewProjection * model);
-        glBindVertexArray(d.lineVao);
-        glDrawArrays(GL_LINES, 0, 24);
-    }
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
+    glViewport(0,0,width,height);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    d.present.use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D,d.pixels.color);
+    glBindVertexArray(d.emptyVao);
+    glDrawArrays(GL_TRIANGLES,0,3);
     return stats;
 }
 

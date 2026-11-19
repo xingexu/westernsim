@@ -64,7 +64,7 @@ void meshing() {
     check(hit && hit->block.y == 0 && !solid(Block::bench), "fixtures stay out of voxel picking and collision");
 }
 
-void movementAndEditing() {
+void movementAndRaycasting() {
     World world(16);
     for (int z = 0; z < 16; ++z)
         for (int x = 0; x < 16; ++x)
@@ -76,7 +76,7 @@ void movementAndEditing() {
     for (int i = 0; i < 120; ++i) player.step(world, {}, false, false);
     check(player.grounded && std::abs(player.feet.y - 1.f) < .001f, "landing on the floor");
     for (int i = 0; i < 120; ++i) player.step(world, {1,0,0}, false, false);
-    check(std::abs(player.feet.x - 4.7f) < .001f, "wall collision");
+    check(std::abs(player.feet.x - (5.f-playerRadius)) < .001f, "wall collision");
     player.step(world, {}, false, true);
     check(!player.grounded && player.feet.y > 1.f, "jump begins on the ground");
     for (int i = 0; i < 120; ++i) player.step(world, {}, false, false);
@@ -107,19 +107,31 @@ void persistence() {
 void campus() {
     const auto world = makeCampus();
     const auto spawn = world.spawn();
-    check(world.edge() == 192 && world.chunks().size() == 576, "fixed benchmark campus dimensions");
+    check(world.edge() == 896 && world.chunks().size() == 12544, "surveyed two-metre campus dimensions");
     check(spawn.x == campusSpawn.x + .5f && spawn.z == campusSpawn.y + .5f, "start at UC Hill");
-    check(world.get({153,4,115}) == Block::water &&
-          world.get({153,8,115}) == Block::pavement &&
-          world.get({153,9,115}) == Block::air, "University Bridge has a walkable deck over the Thames");
-    const auto tower = raycast(world,{76.5f,63.f,88.5f},{0,-1,0},63.f);
-    const auto spire = raycast(world,{119.5f,63.f,85.5f},{0,-1,0},63.f);
-    check(tower && tower->block.y > 37 && spire && spire->block.y > 37, "both tower silhouettes");
-    check(world.get({60,22,89}) == Block::stainedGlass, "Conron Hall windows");
-    const auto plaza = raycast(world,{49.5f,63.f,71.5f},{0,-1,0},63.f);
+    const auto bridge = mapLabels[2].position;
+    check(world.get({bridge.x,6,bridge.y}) == Block::water &&
+          world.get({bridge.x,9,bridge.y}) == Block::pavement &&
+          world.get({bridge.x,10,bridge.y}) == Block::air, "University Drive crosses above the Thames");
+    const auto top = [&](glm::ivec2 place) {
+        return raycast(world,{place.x+.5f,63.f,place.y+.5f},{0,-1,0},63.f);
+    };
+    const auto tower = top(memorialTower), spire = top(middlesexTower);
+    check(tower && tower->block.y >= 34 && spire && spire->block.y >= 35, "both tower silhouettes");
+    const auto plaza = top(landmarks[4].position);
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
-    const auto residence = raycast(world,{6.5f,63.f,170.5f},{0,-1,0},63.f);
-    check(residence && world.get(residence->block) == Block::slate, "Ontario Hall has a flat residence wing");
+    const auto ontario = landmarks[13].position;
+    const auto residence = top(ontario);
+    check(residence && world.get(residence->block) == Block::concrete, "Ontario Hall roof");
+
+    // Start outside Ontario Hall and attempt to walk and jump through the façade.
+    const auto entry = raycast(world,{ontario.x+.5f,13.4f,ontario.y+13.5f},{0,0,-1},13.f);
+    check(entry && world.get(entry->block) == Block::residenceWall, "Ontario Hall south wall");
+    Player visitor;
+    visitor.feet = {ontario.x+.5f,13.f,entry->block.z+2.7f};
+    for (int i = 0; i < 240; ++i) visitor.step(world,{0,0,-1},true,i%120 == 60);
+    check(std::abs(visitor.feet.z-(entry->block.z+1.f+playerRadius)) < .001f,
+          "visitors reach the wall and stay outside the residence");
 }
 
 } // namespace
@@ -127,10 +139,10 @@ void campus() {
 int main() {
     try {
         meshing();
-        movementAndEditing();
+        movementAndRaycasting();
         persistence();
         campus();
-        std::cout << "Meshing, movement, editing, and persistence checks passed.\n";
+        std::cout << "Meshing, movement, persistence and campus checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

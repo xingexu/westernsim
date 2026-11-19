@@ -37,8 +37,8 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
 
 void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     constexpr auto dt = static_cast<float>(physicsStep);
-    const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.5f,0)))) == Block::water;
-    const float speed = swimming ? 2.5f : sprint ? 7.f : 4.8f;
+    const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.25f,0)))) == Block::water;
+    const float speed = swimming ? 1.25f : sprint ? 3.5f : 2.4f;
     const float amount = glm::dot(wish, wish);
     if (amount > 1.f) wish /= std::sqrt(amount);
     velocity.x = wish.x * speed;
@@ -54,9 +54,9 @@ void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
             }
         }
     }
-    if (grounded && jump) velocity.y = 7.6f;
-    if (swimming) velocity.y = jump ? 3.f : std::max(velocity.y - 7.f * dt, -2.f);
-    else velocity.y = std::max(velocity.y - 22.f * dt, -30.f);
+    if (grounded && jump) velocity.y = 4.8f;
+    if (swimming) velocity.y = jump ? 2.5f : std::max(velocity.y - 3.5f * dt, -1.f);
+    else velocity.y = std::max(velocity.y - 11.f * dt, -15.f);
     const bool verticalContact = move(world, feet, 1, velocity.y * dt);
     grounded = verticalContact && velocity.y < 0;
     if (verticalContact) velocity.y = 0;
@@ -65,7 +65,7 @@ void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     if (moving) {
         const float target = std::atan2(-wish.x, -wish.z);
         heading += std::remainder(target - heading, 6.2831853f) * 14.f * dt;
-        stride += speed * 2.5f * dt;
+        stride += speed * 5.f * dt;
     }
 }
 
