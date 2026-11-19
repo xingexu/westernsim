@@ -43,11 +43,8 @@ endif()
 if(WESTERNSIM_BUILD_APP AND EMSCRIPTEN)
     target_compile_options(westernsim_world PRIVATE -fexceptions)
     target_compile_options(westernsim PRIVATE --use-port=contrib.glfw3 -fexceptions)
-    # The campus generator's 192-by-192 height grid alone exceeds the default stack.
     target_link_options(westernsim PRIVATE --use-port=contrib.glfw3 -fexceptions
-        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
-        -sFORCE_FILESYSTEM=1 -lidbfs.js
-        "SHELL:-sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency")
+        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576)
     set_target_properties(westernsim PROPERTIES SUFFIX ".js")
 elseif(WESTERNSIM_BUILD_APP)
     find_package(glfw3 3.3 CONFIG QUIET)

@@ -31,7 +31,7 @@ in vec4 shadowPoint;
 flat in int tile;
 out vec4 color;
 uniform vec3 eye, lightDirection, clockCenter;
-uniform vec3 palette[29];
+uniform vec3 palette[44];
 uniform float time;
 uniform sampler2DShadow shadowMap;
 
@@ -67,6 +67,40 @@ vec3 masonry(vec2 p, vec3 stone, vec2 repeats, float joint) {
     return mix(stone*.69,stone*tone,fine) + stone*.095*bevel;
 }
 
+vec3 facade(vec2 p, vec3 tone, int kind) {
+    bool gothic = kind == 38 || kind == 42;
+    bool brick = kind == 35 || kind == 41;
+    bool concrete = kind == 36 || kind == 39;
+    bool bands = kind == 39 || kind == 37;
+    float bayWidth = gothic ? 2. : bands ? 1.25 : kind == 40 ? 1.55 : 1.5;
+    float floorHeight = gothic ? 2.4 : kind == 39 ? 1.8 : 1.65;
+    vec2 bay = p / vec2(bayWidth,floorHeight);
+    vec2 f = fract(bay);
+    float weather = hash(vec3(floor(bay),19.));
+    vec3 masonryColor = masonry(p,tone,gothic ? vec2(2.3,3.5) : brick ? vec2(2.7,5.5) : vec2(1.2,2.0),.031);
+    vec3 wall = mix(tone,masonryColor,.73);
+    if (f.y > .88 || (concrete && f.y < .09)) wall *= 1.10;
+    if (kind == 41 && mod(floor(bay.x),5.) == 1.) {
+        wall = mix(wall,vec3(.57,.48,.44),.31);
+    }
+    if (kind == 40 && mod(floor(bay.x),7.) == 1.) {
+        wall = mix(wall,vec3(.38,.28,.50),.67);
+    }
+    float dx = abs(f.x-.5);
+    float width = bands ? .43 : gothic ? .31 : .36;
+    float upper = gothic ? .84-max(0.,dx-.07)*.66 : .79;
+    float bottom = kind == 39 ? .38 : .18;
+    if (f.y < bottom-.04 || f.y > upper+.045 || dx > width+.055) return wall;
+    if (f.y < bottom || f.y > upper || dx > width)
+        return tone*1.13;
+    if ((!gothic && dx < .036) || (gothic && abs(dx-.108) < .025) || abs(f.y-.42) < .022)
+        return tone*.67;
+    vec3 glass = mix(vec3(.22,.25,.31),vec3(.39,.53,.58),weather);
+    if (f.y > .61 || abs(f.x+f.y*.65-.76) < .065) glass += vec3(.08,.13,.16);
+    if (kind == 39 && mod(floor(bay.x),3.) == 1.) glass *= .74;
+    return glass;
+}
+
 void main() {
     vec3 n = normalize(face);
     vec3 view = normalize(eye - point);
@@ -76,13 +110,18 @@ void main() {
     vec3 texel = point - n*.001;
     vec3 uv = fract(texel);
     vec2 face = abs(n.y) > .5 ? point.xz : abs(n.x) > .5 ? point.zy : point.xy;
+    face = (floor(face * 20.) + .5) / 20.;
     vec2 faceUV = fract(face);
     float roughSpecular = 0.;
     if (tile == 1 && n.y > .5) {
-        float swale = .5 + .5*sin(point.x*.41+sin(point.z*.30))*sin(point.z*.49);
-        albedo *= .91 + .17*swale;
-        float grainAtDistance = 1.-smoothstep(12.,35.,length(eye-point));
-        albedo *= 1. + (hash(vec3(floor(point.xz*25.),7.))-.5)*.11*grainAtDistance;
+        float swale = .5 + .5*sin(face.x*.41+sin(face.y*.30))*sin(face.y*.49);
+        float grassTone = floor(hash(vec3(floor(face*.75),31.))*4.)/4.;
+        float fleck = hash(vec3(floor(face*14.),7.));
+        albedo *= .90 + .13*swale + .12*grassTone;
+        if (length(eye-point) < 20.) {
+            if (fleck > .89) albedo *= 1.14;
+            if (fleck < .13) albedo *= .83;
+        }
     }
     if (tile == 1 && n.y < .5) {
         albedo *= .78;
@@ -102,6 +141,11 @@ void main() {
     if (tile == 10) albedo = masonry(face,albedo,vec2(1.6,3.3),.045);
     if (tile == 14) albedo = masonry(face,albedo,vec2(1.05,2.12),.033);
     if (tile == 18) albedo *= .93 + .11 * hash(vec3(floor(face*.5),11.));
+    if (tile >= 35 && tile <= 42 && abs(n.y) < .5) {
+        vec2 facadePoint = vec2(point.x*.89+point.z*.455,point.y);
+        if (abs(n.x) > .5) facadePoint.x = point.z*.89-point.x*.455;
+        albedo = facade((floor(facadePoint*24.)+.5)/24.,albedo,tile);
+    }
     if (tile == 16 || tile == 22 || tile == 23) {
         float across = faceUV.x;
         float frame = 1.-smoothstep(.024,.049,min(across,1.-across));
@@ -139,14 +183,10 @@ void main() {
         roughSpecular = tile == 19 ? .10 : .025;
     }
     if (tile == 6 || tile == 8 || tile == 20 || tile == 21 || tile == 28) {
-        float cluster = .5+.5*sin(dot(texel,vec3(8.4,9.7,10.3)))*sin(dot(texel,vec3(-7.2,3.4,11.)));
-        albedo *= .92 + .16*cluster;
-        if (tile == 28) {
-            vec2 petals = fract(face*6.)-.5;
-            float blossom = 1.-smoothstep(.10,.20,length(petals));
-            float bloom = hash(vec3(floor(face*6.),19.));
-            albedo = mix(albedo,mix(vec3(.97,.71,.95),vec3(1.,.79,.29),bloom),blossom*step(.55,bloom));
-        }
+        float leaf = hash(vec3(floor(face*6.),17.));
+        float cluster = hash(vec3(floor(face*1.8),3.));
+        albedo *= .80 + .13*floor(leaf*4.)/3. + .19*floor(cluster*4.)/3.;
+        if (leaf > .93) albedo += vec3(.045,.04,.012);
     }
     if (tile == 17 && n.y > .5) {
         albedo *= .96 + .075*hash(vec3(floor(face*12.),3.));
@@ -155,8 +195,8 @@ void main() {
     if (tile == 25) roughSpecular = .19;
     float diffuse = max(0., dot(n, lightDirection));
     float direct = sunlight(n);
-    vec3 ambient = mix(vec3(.59,.62,.76),vec3(.76,.83,.93),n.y*.5+.5);
-    vec3 lit = albedo * (ambient + diffuse * direct * vec3(.41,.35,.24));
+    vec3 ambient = mix(vec3(.59,.60,.75),vec3(.84,.85,.93),n.y*.5+.5);
+    vec3 lit = albedo * (ambient + diffuse * floor(direct*4.+.5)*.25 * vec3(.42,.38,.28));
     vec3 halfway = normalize(lightDirection+view);
     lit += vec3(1.,.92,.78) * roughSpecular * direct * pow(max(0.,dot(n,halfway)),24.);
     if (tile == 13) {
@@ -165,20 +205,20 @@ void main() {
         lit = frame ? vec3(.37,.29,.25) : mix(vec3(.99,.57,.21),vec3(1.,.84,.48),uv.y);
     }
     if (tile == 12) {
-        float a = sin(dot(texel.xz, vec2(.74, 1.61)) + time * 1.6);
-        float b = sin(dot(texel.xz, vec2(1.34,-.66)) - time * 1.2);
-        vec3 ripple = normalize(vec3(.045 * a, 1., .049 * b));
-        float fresnel = pow(1. - clamp(dot(view,ripple),0.,1.), 3.);
-        float glint = pow(max(dot(reflect(-lightDirection,ripple),view),0.), 26.);
-        float lines = smoothstep(.82,.99,.5+.5*sin(texel.z*8.5+a+b*1.7));
-        lit = mix(vec3(.10,.46,.57),vec3(.60,.82,.97),fresnel*.80);
-        lit += vec3(.60,.42,.23) * glint + vec3(.10,.19,.20)*lines*(.33+.38*b*b);
-        lit *= .86 + .14*direct;
+        vec2 flow = face+vec2(floor(time*5.)*.14,-floor(time*4.)*.14);
+        float swell = sin(flow.y*3.+sin(flow.x*.72)*1.6);
+        float sparkle = hash(vec3(floor(flow*vec2(.9,4.)),4.));
+        lit = mix(vec3(.23,.44,.53),vec3(.45,.63,.68),floor((1.-max(0.,view.y))*5.)*.2);
+        if (swell > .72 && sparkle > .56) lit += vec3(.14,.17,.16);
+        if (swell < -.75 && sparkle < .58) lit *= .88;
+        lit *= .87 + .13*direct;
     }
     float distanceToEye = length(eye - point);
-    float fog = 1.0 - exp(-pow(distanceToEye * .0097, 1.61));
-    vec3 haze = vec3(.72,.85,.95);
-    color = vec4(mix(lit,haze,fog*.78),1.);
+    float fog = 1.0 - exp(-pow(distanceToEye * .0075, 1.57));
+    vec3 haze = vec3(.73,.81,.87);
+    vec2 px = mod(floor(gl_FragCoord.xy),2.);
+    float dither = (px.x*2.+px.y*3.)*.17-.4;
+    color = vec4(floor(clamp(mix(lit,haze,fog*.86),0.,1.)*41.+dither+.5)/41.,1.);
 }
 )GLSL";
 
@@ -198,6 +238,15 @@ out vec3 bakedColor;
 void main() {
     bakedColor = color;
     gl_Position = transform * vec4(position, 1.);
+}
+)GLSL";
+
+inline constexpr char pixelFragment[] = WESTERNSIM_GLSL R"GLSL(
+in vec2 ndc;
+out vec4 color;
+uniform sampler2D scene;
+void main() {
+    color = texture(scene,ndc*.5+.5);
 }
 )GLSL";
 
@@ -228,8 +277,8 @@ float noise(vec2 p) {
 void main() {
     vec4 farPoint = inverseViewProjection * vec4(ndc, 1., 1.);
     vec3 ray = normalize(farPoint.xyz / farPoint.w - eye);
-    float horizon = smoothstep(-.12, .52, ray.y);
-    vec3 sky = mix(vec3(.78,.88,1.),vec3(.27,.62,.95),horizon);
+    float horizon = floor(smoothstep(-.12, .54, ray.y)*16.)/16.;
+    vec3 sky = mix(vec3(.78,.86,.91),vec3(.37,.58,.79),horizon);
     float sun = max(0.,dot(ray,lightDirection));
     sky = mix(sky,vec3(1.,.81,.47), .39 * pow(sun,8.));
     sky += vec3(.16,.094,.031) * pow(sun,56.);
@@ -237,12 +286,12 @@ void main() {
     if (ray.y > .026) {
         vec2 p = ray.xz / (ray.y + .09) * vec2(2.7,4.1) + vec2(time*.025,0);
         float mass = .60*noise(p) + .25*noise(p*2.03) + .10*noise(p*4.10) + .05*noise(p*8.25);
-        float mask = smoothstep(.54,.66,mass) * smoothstep(.023,.14,ray.y);
-        vec3 cloud = mix(vec3(.78,.86,.96),vec3(1.,.985,.95),smoothstep(.54,.70,mass));
+        float mask = step(.58,mass)*smoothstep(.023,.14,ray.y);
+        vec3 cloud = mass > .66 ? vec3(1.,.96,.85) :
+                     mass > .62 ? vec3(.93,.91,.86) : vec3(.79,.83,.87);
         sky = mix(sky,cloud,mask);
     }
-    float vignette = 1. - .12 * pow(length(ndc * vec2(.69,.58)), 2.1);
-    color = vec4(sky*vignette,1.);
+    color = vec4(sky,1.);
 }
 )GLSL";
 
@@ -257,17 +306,6 @@ void main() { tile = material; gl_Position = lightMatrix * model * vec4(position
 inline constexpr char depthFragment[] = WESTERNSIM_GLSL R"GLSL(
 flat in float tile;
 void main() { if (tile == 12.) discard; }
-)GLSL";
-
-inline constexpr char lineVertex[] = WESTERNSIM_GLSL R"GLSL(
-layout(location=0) in vec3 position;
-uniform mat4 transform;
-void main() { gl_Position = transform * vec4(position, 1.); }
-)GLSL";
-
-inline constexpr char lineFragment[] = WESTERNSIM_GLSL R"GLSL(
-out vec4 color;
-void main() { color = vec4(.98,.91,.67,1.); }
 )GLSL";
 
 } // namespace wsim::shaders

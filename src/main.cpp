@@ -24,7 +24,6 @@
 #include <vector>
 
 #ifdef __EMSCRIPTEN__
-EM_JS(void, flushBrowserSave, (), { Module.westernSimFlush(); });
 EM_JS(void, showBrowserError, (const char* message), { Module.westernSimFailed(UTF8ToString(message)); });
 EM_JS(void, showBrowserReady, (), { Module.westernSimReady(); });
 #endif
@@ -33,18 +32,15 @@ namespace {
 
 using namespace wsim;
 constexpr float pi = 3.14159265f;
-constexpr float editReach = 8.f;
 #ifdef __EMSCRIPTEN__
-constexpr int saveKey = GLFW_KEY_K, loadKey = GLFW_KEY_L;
-constexpr int diagnosticsKey = GLFW_KEY_I, meshKey = GLFW_KEY_O;
+constexpr int diagnosticsKey = GLFW_KEY_I;
 #else
-constexpr int saveKey = GLFW_KEY_F5, loadKey = GLFW_KEY_F9;
-constexpr int diagnosticsKey = GLFW_KEY_F1, meshKey = GLFW_KEY_F2;
+constexpr int diagnosticsKey = GLFW_KEY_F1;
 constexpr int benchmarkWarmup = 30, benchmarkFrames = 120;
 
 struct Options {
     bool benchmark = false, screenshotMap = false, screenshotAvatar = false;
-    std::filesystem::path screenshot, save = "world.qlw";
+    std::filesystem::path screenshot;
 };
 #endif
 
@@ -61,7 +57,6 @@ struct Window {
 #ifdef __EMSCRIPTEN__
     Window(int width, int height) {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,2);
-        glfwWindowHint(GLFW_ALPHA_BITS,0);
         glfwWindowHint(GLFW_SCALE_FRAMEBUFFER,GLFW_FALSE);
         emscripten::glfw3::SetNextWindowCanvasSelector("#canvas");
 #else
@@ -71,7 +66,6 @@ struct Window {
         glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT,GLFW_TRUE);
         glfwWindowHint(GLFW_VISIBLE,offscreen ? GLFW_FALSE : GLFW_TRUE);
-        glfwWindowHint(GLFW_SAMPLES,4);
 #endif
         handle = glfwCreateWindow(width,height,"Western Sim",nullptr,nullptr);
 #ifdef __EMSCRIPTEN__
@@ -85,34 +79,22 @@ struct Window {
 };
 
 struct Orbit {
-    float yaw = -.27f, pitch = .17f;
+    float yaw = -1.11f, pitch = .17f;
 
     glm::vec3 horizontal() const { return {std::sin(yaw), 0.f, -std::cos(yaw)}; }
     glm::vec3 right() const { return {std::cos(yaw), 0.f, std::sin(yaw)}; }
 
     Camera view(const World& world, glm::vec3 feet, float aspect) const {
         const auto direction = horizontal() * std::cos(pitch) + glm::vec3(0,std::sin(pitch),0);
-        const auto focus = feet + glm::vec3(0,2.16f,0) + right() * .35f;
-        float distance = 6.1f;
+        const auto focus = feet + glm::vec3(0,.96f,0) + right() * .09f;
+        float distance = 3.4f;
         if (const auto obstruction = raycast(world,focus,-direction,distance))
             distance = std::max(.12f, obstruction->distance - .22f);
         const auto eye = focus - direction * distance;
         return {eye,direction,glm::lookAt(eye,eye+direction,{0,1,0}),
-                glm::perspective(68.f * pi / 180.f,aspect,.08f,275.f)};
+                glm::perspective(62.f * pi / 180.f,aspect,.055f,220.f)};
     }
 };
-
-std::optional<Hit> buildTarget(const World& world, const Camera& camera, const Player& player) {
-    const auto hit = raycast(world,camera.eye,camera.forward,editReach + 6.f);
-    if (!hit) return std::nullopt;
-    const auto position = camera.eye + camera.forward * (hit->distance + .015f);
-    const auto eyes = player.feet + glm::vec3(0,1.40f,0);
-    const auto reach = position - eyes;
-    const auto distance = glm::length(reach);
-    if (distance > editReach) return std::nullopt;
-    const auto direct = raycast(world,eyes,reach,distance + .04f);
-    return direct && direct->block == hit->block ? hit : std::nullopt;
-}
 
 #ifndef __EMSCRIPTEN__
 void capture(const std::filesystem::path& path, int width, int height) {
@@ -135,8 +117,8 @@ void checkGraphics() {
 }
 
 RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const Camera& camera,
-                      const Player& player, const std::optional<Hit>& hit, float time, HudState& state) {
-    state.stats = renderer.draw(camera,player,hit,width,height,time);
+                      const Player& player, float time, HudState& state) {
+    state.stats = renderer.draw(camera,player,width,height,time);
     hud.draw(width,height,state);
     return state.stats;
 }
@@ -144,12 +126,10 @@ RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const
 #ifndef __EMSCRIPTEN__
 void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& world, int width, int height) {
     using Clock = std::chrono::steady_clock;
-    GLint samples = 0;
-    glGetIntegerv(GL_SAMPLES,&samples);
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << '\n'
               << "Driver: " << glGetString(GL_VERSION) << '\n'
               << "World: " << world.edge() << " x " << worldHeight << " x " << world.edge()
-              << " | " << width << " x " << height << " native, " << samples << " MSAA samples | "
+              << " | " << width << " x " << height << " pixel-art output | "
               << benchmarkWarmup << " warm-up + "
               << benchmarkFrames << " measured frames per mode | VSync off\n";
     Player player;
@@ -171,8 +151,8 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
             const auto camera = orbit.view(world,player.feet,float(width)/height);
             HudState state;
             state.heading = orbit.yaw * 180.f / pi;
-            state.editing = true;
-            stats = drawFrame(renderer,hud,width,height,camera,player,{},t * 3.f,state);
+            state.meshing = mode;
+            stats = drawFrame(renderer,hud,width,height,camera,player,t * 3.f,state);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (frame >= 0) {
@@ -196,11 +176,10 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
 
 class Game {
 public:
-    Game(GLFWwindow* window, Renderer& renderer, Hud& hud, const std::filesystem::path& path)
-        : window_(window), renderer_(renderer), hud_(hud), savePath_(path) {
+    Game(GLFWwindow* window, Renderer& renderer, Hud& hud)
+        : window_(window), renderer_(renderer), hud_(hud) {
         resetPlayer();
-        renderer_.rebuild(world_,state_.meshing);
-        hud_.setCampusMap(world_);
+        renderer_.rebuild(world_,Meshing::greedy);
         glfwSetWindowUserPointer(window_,this);
         glfwSetKeyCallback(window_,[](GLFWwindow* window,int key,int,int action,int) {
 #ifdef __EMSCRIPTEN__
@@ -219,14 +198,8 @@ public:
 #endif
         glfwSetMouseButtonCallback(window_,[](GLFWwindow* window,int button,int action,int) {
             auto& self = game(window);
-            if (action != GLFW_PRESS || self.overlay()) return;
-            if (!self.captured_) self.cursor(true);
-            else if (button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT)
-                self.pendingEdits_.push_back(button);
-        });
-        glfwSetScrollCallback(window_,[](GLFWwindow* window,double,double y) {
-            auto& self = game(window);
-            if (!self.overlay() && y != 0) self.state_.slot = (self.state_.slot + (y < 0 ? 1 : 7)) % 8;
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
+                !self.captured_ && !self.overlay()) self.cursor(true);
         });
         glfwSetWindowFocusCallback(window_,[](GLFWwindow* window,int focused) {
             auto& self = game(window);
@@ -235,7 +208,6 @@ public:
 #endif
             if (!focused) self.cursor(false);
         });
-        state_.editing = true;
 #ifndef __EMSCRIPTEN__
         cursor(true);
 #endif
@@ -250,7 +222,6 @@ public:
 
 #ifdef __EMSCRIPTEN__
     void requestCapture() { cursor(true); }
-    void storageResult(bool persisted) { announce(persisted ? "Campus saved" : "Saved for this tab only"); }
 #else
     void run() {
         while (!glfwWindowShouldClose(window_)) {
@@ -267,7 +238,6 @@ public:
             captured_ = locked;
             if (!locked) {
                 state_.guide = state_.map = false;
-                pendingEdits_.clear();
                 jumpQueued_ = false;
                 keys_.fill(false);
             }
@@ -282,12 +252,6 @@ public:
         glfwGetFramebufferSize(window_,&width,&height);
         if (width == 0 || height == 0) return false;
         const auto camera = orbit_.view(world_,player_.feet,float(width)/height);
-        auto hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
-        for (const auto button : pendingEdits_) {
-            if (hit) edit(*hit,button);
-            hit = state_.editing && !overlay() ? buildTarget(world_,camera,player_) : std::nullopt;
-        }
-        pendingEdits_.clear();
         state_.heading = orbit_.yaw * 180.f / pi;
         state_.position = {player_.feet.x,player_.feet.z};
         if (now >= toastUntil_) state_.toast = {};
@@ -298,7 +262,7 @@ public:
             fpsTime_ = 0;
             fpsFrames_ = 0;
         }
-        drawFrame(renderer_,hud_,width,height,camera,player_,hit,float(now),state_);
+        drawFrame(renderer_,hud_,width,height,camera,player_,float(now),state_);
 #ifndef __EMSCRIPTEN__
         glfwSwapBuffers(window_);
 #endif
@@ -309,14 +273,13 @@ private:
     GLFWwindow* window_;
     Renderer& renderer_;
     Hud& hud_;
-    std::filesystem::path savePath_;
-    World world_ = makeCampus();
+    const World world_ = makeCampus();
     Player player_;
     Orbit orbit_;
     HudState state_;
     std::array<bool,GLFW_KEY_LAST+1> keys_{};
-    std::vector<int> pendingEdits_;
     bool captured_ = false, jumpQueued_ = false;
+    bool mapReady_ = false;
 #ifndef __EMSCRIPTEN__
     bool cursorKnown_ = false;
     double mouseX_ = 0, mouseY_ = 0;
@@ -372,55 +335,23 @@ private:
 #ifndef __EMSCRIPTEN__
             cursor(!overlay());
 #endif
-            pendingEdits_.clear();
             jumpQueued_ = false;
         }
         if (keys_[GLFW_KEY_M]) {
             state_.map = !state_.map;
             state_.guide = false;
+            if (state_.map && !mapReady_) {
+                hud_.setCampusMap(world_);
+                mapReady_ = true;
+            }
 #ifndef __EMSCRIPTEN__
             cursor(!overlay());
 #endif
-            pendingEdits_.clear();
             jumpQueued_ = false;
         }
         if (!overlay()) {
-            if (keys_[GLFW_KEY_E]) {
-                state_.editing = !state_.editing;
-                pendingEdits_.clear();
-            }
             if (keys_[diagnosticsKey]) state_.diagnostics = !state_.diagnostics;
-            if (keys_[meshKey]) {
-                state_.meshing = state_.meshing == Meshing::greedy ? Meshing::exposed : Meshing::greedy;
-                renderer_.rebuild(world_,state_.meshing);
-                announce(state_.meshing == Meshing::greedy ? "Greedy mesh" : "Exposed faces");
-            }
-            if (keys_[saveKey]) {
-                std::string error;
-#ifdef __EMSCRIPTEN__
-                if (world_.save(savePath_,error)) {
-                    flushBrowserSave();
-                } else {
-                    announce(error);
-                }
-#else
-                announce(world_.save(savePath_,error) ? "Campus saved" : error);
-#endif
-            }
-            if (keys_[loadKey]) {
-                std::string error;
-                if (auto saved = World::load(savePath_,error)) {
-                    world_ = std::move(*saved);
-                    renderer_.rebuild(world_,state_.meshing);
-                    resetPlayer();
-                    announce("Campus loaded");
-                } else {
-                    announce(error);
-                }
-            }
             if (keys_[GLFW_KEY_R]) resetPlayer();
-            for (int i = 0; i < 8; ++i)
-                if (keys_[GLFW_KEY_1+i]) state_.slot = i;
             if (keys_[GLFW_KEY_SPACE] && captured_) jumpQueued_ = true;
         }
         keys_.fill(false);
@@ -434,7 +365,7 @@ private:
         }
         accumulator_ += elapsed;
         while (accumulator_ >= physicsStep) {
-            const bool inWater = world_.get(glm::ivec3(glm::floor(player_.feet + glm::vec3(0,.5f,0)))) == Block::water;
+            const bool inWater = world_.get(glm::ivec3(glm::floor(player_.feet + glm::vec3(0,.25f,0)))) == Block::water;
             const bool jump = jumpQueued_ || (captured_ && inWater && held(GLFW_KEY_SPACE));
             player_.step(world_,wish,held(GLFW_KEY_LEFT_SHIFT) || held(GLFW_KEY_RIGHT_SHIFT),jump);
             jumpQueued_ = false;
@@ -446,18 +377,6 @@ private:
         }
     }
 
-    void edit(const Hit& hit, int button) {
-        auto at = hit.block;
-        auto block = Block::air;
-        if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-            if (hit.normal == glm::ivec3(0)) return;
-            at += hit.normal;
-            const auto current = world_.get(at);
-            if ((current != Block::air && current != Block::water) || player_.overlaps(at)) return;
-            block = buildingPalette[state_.slot].block;
-        }
-        if (world_.set(at,block)) renderer_.update(world_,at);
-    }
 };
 
 #ifdef __EMSCRIPTEN__
@@ -479,7 +398,6 @@ Options options(int argc, char** argv) {
             result.screenshotMap = arg == "--screenshot-map";
             result.screenshotAvatar = arg == "--screenshot-avatar";
         }
-        else if (arg == "--save" && i + 1 < argc) result.save = argv[++i];
         else throw std::runtime_error("Invalid argument: " + arg + " (see --help)");
     }
     if (result.benchmark && !result.screenshot.empty())
@@ -498,9 +416,6 @@ EMSCRIPTEN_KEEPALIVE void westernsim_capture() {
 EMSCRIPTEN_KEEPALIVE void westernsim_look(float dx, float dy) {
     if (browserGame) browserGame->look(dx,dy);
 }
-EMSCRIPTEN_KEEPALIVE void westernsim_storage_result(int persisted) {
-    if (browserGame) browserGame->storageResult(persisted != 0);
-}
 }
 
 int main() {
@@ -510,7 +425,7 @@ int main() {
         glfwMakeContextCurrent(window.handle);
         static Renderer renderer;
         static Hud hud;
-        static Game game(window.handle,renderer,hud,"/saves/world.qlw");
+        static Game game(window.handle,renderer,hud);
         browserGame = &game;
         game.frame();
         checkGraphics();
@@ -532,7 +447,7 @@ int main() {
 int main(int argc,char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
-            std::cout << "Western Sim [--save FILE] [--benchmark | --screenshot FILE.ppm | "
+            std::cout << "Western Sim [--benchmark | --screenshot FILE.ppm | "
                          "--screenshot-map FILE.ppm | --screenshot-avatar FILE.ppm]\n";
             return 0;
         }
@@ -550,7 +465,7 @@ int main(int argc,char** argv) {
 
         if (!offscreen) {
             glfwSetWindowSizeLimits(window.handle, 800, 450, GLFW_DONT_CARE, GLFW_DONT_CARE);
-            Game game(window.handle,renderer,hud,args.save);
+            Game game(window.handle,renderer,hud);
             game.run();
         } else {
             int width,height;
@@ -566,19 +481,18 @@ int main(int argc,char** argv) {
                 auto camera = orbit.view(world,player.feet,float(width)/height);
                 if (args.screenshotAvatar) {
                     player.heading = pi - orbit.yaw + .21f;
-                    const auto target = player.feet + glm::vec3(0,.88f,0);
-                    const auto eye = target - orbit.horizontal()*2.75f + glm::vec3(0,.23f,0);
+                    const auto target = player.feet + glm::vec3(0,.44f,0);
+                    const auto eye = target - orbit.horizontal()*1.38f + glm::vec3(0,.115f,0);
                     camera = {eye,glm::normalize(target-eye),glm::lookAt(eye,target,{0,1,0}),
                               glm::perspective(44.f*pi/180.f,float(width)/height,.08f,275.f)};
-                    renderer.draw(camera,player,{},width,height,1.2f);
+                    renderer.draw(camera,player,width,height,1.2f);
                 } else {
                     HudState state;
-                    state.editing = true;
                     state.map = args.screenshotMap;
                     state.position = {player.feet.x,player.feet.z};
                     state.heading = orbit.yaw * 180.f / pi;
                     if (state.map) hud.setCampusMap(world);
-                    drawFrame(renderer,hud,width,height,camera,player,{},1.2f,state);
+                    drawFrame(renderer,hud,width,height,camera,player,1.2f,state);
                 }
                 capture(args.screenshot,width,height);
                 checkGraphics();

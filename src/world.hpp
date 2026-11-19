@@ -13,7 +13,7 @@ namespace wsim {
 
 constexpr int chunkSize = 16;
 constexpr int worldHeight = 64;
-constexpr int worldSize = 192;
+constexpr int worldSize = 896;
 
 enum class Block : std::uint8_t {
     air, grass, earth, shale, sand, cedar, needles, birch, leaves,
@@ -21,10 +21,14 @@ enum class Block : std::uint8_t {
     pavement, concrete, copper, goldLeaves, redLeaves, stainedGlass,
     lancet, clock, iron, flagRed, flagWhite, flowers,
     lampPost, bench, planter, canopyGreen, canopyGold, canopyCopper,
+    houseWall, academicWall, modernWall, heritageWall, libraryWall, unionWall, residenceWall,
+    galleryWall, wildflowers,
     count
 };
 
-constexpr bool scenery(Block block) { return block >= Block::lampPost && block < Block::count; }
+constexpr bool scenery(Block block) {
+    return (block >= Block::lampPost && block <= Block::canopyCopper) || block == Block::wildflowers;
+}
 constexpr bool canopy(Block block) { return block >= Block::canopyGreen && block <= Block::canopyCopper; }
 
 constexpr bool solid(Block block) {

@@ -1,5 +1,5 @@
 Renderer: llvmpipe (LLVM 15.0.7, 256 bits)
-Driver: 3.3 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
-World: 192 x 64 x 192 | 1280 x 720 native, 4 MSAA samples | 30 warm-up + 120 measured frames per mode | VSync off
-Exposed: 346892 triangles across 234 mesh-bearing chunks | 141.0 avg chunks and 199877.1 avg triangles in camera pass | 7.5 FPS (133.7 ms/frame)
-Greedy: 93092 triangles across 234 mesh-bearing chunks | 141.0 avg chunks and 48962.9 avg triangles in camera pass | 12.4 FPS (80.4 ms/frame)
+Driver: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+World: 896 x 64 x 896 | 1280 x 720 pixel-art output | 30 warm-up + 120 measured frames per mode | VSync off
+Exposed: 5064850 triangles across 4332 mesh-bearing chunks | 478.9 avg chunks and 391848.3 avg triangles in camera pass | 10.8 FPS (92.3 ms/frame)
+Greedy: 1599512 triangles across 4332 mesh-bearing chunks | 478.9 avg chunks and 93354.1 avg triangles in camera pass | 25.8 FPS (38.8 ms/frame)

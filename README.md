@@ -2,13 +2,13 @@
 
 **A playable recreation of Western University, built from scratch in C++17 and OpenGL 3.3.**
 
-Start below UC Hill, walk past University College and Middlesex College, or follow the road across the Thames. Press **M** to open the campus map. Use the material bar to build directly into the world, then save your changes to a local file.
+Start on UC Hill, walk past University College and Middlesex College, or follow University Drive across the Thames. Press **M** to open the campus map. Western Sim is an exterior-only walkthrough with your Ontario Hall avatar and the pixel-art style of the room on xinge.ca.
 
-![The third-person avatar at the foot of UC Hill, looking up toward University College and the Middlesex College clock tower](docs/western-campus.webp)
+![The third-person avatar on a path below University College](docs/western-campus.webp)
 
 ## Play in a browser
 
-Use a desktop browser with WebGL 2, a keyboard, and a mouse. Click **Play** to capture the mouse and **Esc** to release it. Browser controls match the desktop controls below, with **K** to save, **L** to load, **I** for diagnostics, and **O** to compare meshing modes. The browser stores one save per site in IndexedDB. A preview URL and a production URL have separate saves.
+Use a desktop browser with WebGL 2, a keyboard, and a mouse. Click **Play** to capture the mouse and **Esc** to release it. Browser controls match the desktop controls below, with **I** for diagnostics.
 
 For Vercel, import this repository with the **Other** framework preset and the repository root as the root directory. The checked-in Vercel configuration runs the WebAssembly build and serves `dist/`. Clear any dashboard overrides for the install command, build command, or output directory that conflict with it.
 
@@ -34,35 +34,31 @@ ctest --test-dir build -C Release --output-on-failure
 
 With a multi-config generator such as Visual Studio, run `build/Release/westernsim.exe` instead. On Linux the GLFW source fallback uses X11 and needs the `xorg-dev` package.
 
-The world starts fresh at launch. **F5** writes `world.qlw` to your working directory and **F9** loads it. Start with `--save FILE` to use a different file. Changes include the full voxel layout, and loading returns the avatar to UC Hill.
-
 | Control | Action |
 | --- | --- |
 | **WASD** / mouse | Walk / orbit the third-person camera |
 | **Shift** / **Space** | Sprint / jump or swim upward |
-| **Left click** / **Right click** | Remove / place the targeted block |
-| **1–8** or scroll | Select building material |
-| **E** | Toggle building |
 | **M** / **Tab** | Campus map / field guide |
-| **F5** / **F9** | Save / load |
-| **F1** / **F2** | Diagnostics / switch meshing algorithms |
+| **F1** | Diagnostics |
 | **R** / **Esc** | Return to UC Hill / release or recapture the cursor |
 
 ## Campus
 
-The `192 × 64 × 192` campus contains 20 named landmarks. Look for University College's stone portal and stained glass, the Middlesex clock tower, Weldon's stepped façade, Ontario Hall's glazed podium and residence wings, and McIntosh Gallery's red doors and pergola. Benches, lanterns, and planters line the paths and Concrete Beach. The University Drive Bridge crosses the Thames on a raised stone deck.
+The `896 × 64 × 896` voxel grid covers a **1.792 km × 1.792 km** area at two metres per cell. It uses surveyed terrain, building footprints, roads, footpaths, trees, and water from the [City of London](https://london.ca/government/open-data), with [OpenStreetMap](https://www.openstreetmap.org/copyright) geometry for crossings and additional paths and buildings. Google Maps satellite imagery and Street View were visual references for the campus layout and streetscape. The game renders its own geometry and textures.
 
-The in-game map samples the top block of each column in the original voxel campus, giving it one map pixel per column. It follows the player's current position and keeps the original campus as a reference while you build.
+The north-up campus map follows your position and labels 20 landmarks. Look for University College's Memorial Tower, Middlesex College's clock spire, Weldon Library's stepped profile, McIntosh Gallery's red entrance, and Ontario Hall's residence wings. The campus follows the surveyed footprints and topography. Building heights, roof shapes, window patterns, and street furniture are stylized estimates. Buildings are solid so you can walk around their exteriors.
 
-<img src="docs/campus-map.webp" width="820" alt="Pixel-art campus map with 20 numbered landmarks, the Thames River, and the player's position">
+The builds use the checked-in geographic data. To rebake it from the public sources, install the Python packages NumPy, Pillow, PyProj, Requests, SciPy, and Shapely 2. Then run the command below. Subsequent runs reuse downloaded data in the supplied cache directory.
 
-The campus is hand-authored at play scale. References include [Western's campus map](https://www.uwo.ca/biology/obd2019/program__schedule/campus_map.html), the [Western University walking tour](https://international.uwo.ca/pdf/2024/WI_Walking%20Tour%20and%20Map_2024%20web.pdf), and [Canadian Architect's Ontario Hall feature](https://canadianarchitect.com/1003731651/).
+```sh
+python tools/bake_campus.py /path/to/campus-cache --preview /path/to/campus-preview.png
+```
+
+See [Western's campus map](https://www.uwo.ca/biology/obd2019/program__schedule/campus_map.html) and the [Western University walking tour](https://international.uwo.ca/pdf/2024/WI_Walking%20Tour%20and%20Map_2024%20web.pdf) for the real campus.
 
 ## Avatar
 
 The player character uses the age-18 model from the Ontario Hall chapter of [Xinge's About page](https://xinge.ca/about). Its face, hair, outfit, baked vertex colors, and articulated part geometry come directly from the portfolio model. Western Sim scales it to the engine's collision height and animates it as you walk and jump.
-
-<img src="docs/western-avatar.webp" width="640" alt="Front view of the Western chapter avatar in a black hoodie, sweatpants and shoes">
 
 The exported mesh is bundled. To refresh it, run `node tools/export_western_avatar.mjs /path/to/xingexuportfolio` with the portfolio's dependencies installed. Use `--screenshot-avatar portrait.ppm` to render a front view.
 
@@ -71,28 +67,30 @@ The exported mesh is bundled. To refresh it, run `node tools/export_western_avat
 | System | Implementation |
 | --- | --- |
 | Geometry | Contiguous `16³` chunks. The reference mesher emits the outer faces, including seam-aware occlusion. Greedy meshing merges coplanar rectangles with matching material and orientation. |
-| Rendering | Indexed OpenGL meshes, camera-frustum culling, filtered directional shadows, procedural masonry and window materials, and animated water. The scene renders at the window's framebuffer resolution with 4× multisampling requested. |
+| Rendering | Indexed OpenGL and WebGL meshes, camera-frustum culling, nearby directional shadows, procedural pixel textures, and animated water. A low-resolution framebuffer is presented with nearest-neighbor scaling. |
 | Avatar | Imported, articulated voxel mesh, camera-relative locomotion, and a third-person orbit that retracts against the world. |
 | Physics | Fixed 120 Hz gravity and voxel AABB collision, with one-block step-up and swimming. |
-| Building | Voxel DDA picking, collision-aware placement, remeshing of edited chunks and affected seam neighbors, and versioned binary snapshots. Campus fixtures are decorative and share the saved chunk layout. |
+| Campus data | Run-length encoded column heights, materials, roofs, and sparse bridge and tree locations. The game loads these into a read-only campus. |
 
-The CTest suite covers triangle counts, material splits, chunk seams, face winding, collisions, picking, save round trips, invalid saves, and the campus landmarks and bridge.
+The CTest suite covers triangle counts, material splits, chunk seams, face winding, movement, camera raycasts, engine snapshot compatibility, the University Drive crossing, and collision with building exteriors and tree trunks.
 
 ## Benchmark
 
-Run `./build/westernsim --benchmark` in a desktop session (or under Xvfb on Linux). The same camera sweep runs in both modes at **1280 × 720 native resolution** with VSync off and 30 warm-up plus 120 measured frames per mode. The timing includes the shadow pass, camera pass, and HUD. World counts include the decorative geometry shared by both modes and are measured before camera culling. Switch modes with **F2** during play or press **F1** to inspect live submission counts.
+Run `./build/westernsim --benchmark` in a desktop session (or under Xvfb on Linux). The same camera sweep runs in both modes at **1280 × 720 output** with VSync off and 30 warm-up plus 120 measured frames per mode. The timing includes the shadow pass, camera pass, and HUD. World counts include the decorative geometry shared by both modes and are measured before camera culling. Press **F1** in the desktop app for live submission counts.
 
 | Meshing mode | World triangles | Mean camera-pass triangles | FPS |
 | --- | ---: | ---: | ---: |
-| Exposed faces | 346,892 | 199,877.1 | 7.5 |
-| Greedy | 93,092 | 48,962.9 | 12.4 |
+| Exposed faces | 5,064,850 | 391,848.3 | 10.8 |
+| Greedy | 1,599,512 | 93,354.1 | 25.8 |
 
-Greedy meshing reduced the world mesh by **73.2%**. These figures are from a Release build on Ubuntu with Mesa llvmpipe CPU rendering, an OpenGL 3.3 core context, and 4× MSAA. See the [captured benchmark output](docs/benchmark.txt) for the full run statistics.
+Greedy meshing reduced world triangles by **68.4%** in the [captured Release benchmark](docs/benchmark.txt) on Ubuntu with Mesa llvmpipe CPU rendering.
 
-**Resume bullet**
+**Résumé bullet**
 
-> Built a C++17/OpenGL 3.3 voxel engine with a playable, editable Western University campus, fixed-step collision, and chunk frustum culling. Reduced world mesh triangles by 73.2% (347K to 93K) with greedy meshing and raised measured rendering throughput from 7.5 to 12.4 FPS at native 720p on Mesa llvmpipe.
+> Built a C++17 voxel engine that runs on OpenGL and WebGL 2, with fixed-step collision and a 1.79 km-wide Western University campus. Reduced world triangles by 68.4% with greedy meshing and increased measured 720p output from 10.8 to 25.8 FPS on Mesa llvmpipe.
 
 ## Credits
 
-Western Sim uses [GLFW](https://www.glfw.org/), [GLAD](https://github.com/Dav1dde/glad), [GLM](https://github.com/g-truc/glm), and [Inter](https://rsms.me/inter/). The GLAD and font notices are included in the source.
+Western Sim uses [GLFW](https://www.glfw.org/), [GLAD](https://github.com/Dav1dde/glad), [GLM](https://github.com/g-truc/glm), [Inter](https://rsms.me/inter/), and [Silkscreen](https://github.com/google/fonts/tree/main/ofl/silkscreen). The GLAD and font notices are included in the source.
+
+Geographic data includes information from the City of London under its [Open Data Licence](https://london.ca/government/open-data) and from © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). The derived geographic data is available in the generated campus headers in this repository.

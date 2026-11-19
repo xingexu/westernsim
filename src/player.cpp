@@ -1,4 +1,5 @@
 #include "player.hpp"
+#include "scenery.hpp"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -16,15 +17,30 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
     if (delta == 0) return false;
     auto next = feet;
     next[axis] += delta;
-    const glm::ivec3 begin = glm::floor(next + low + epsilon);
-    const glm::ivec3 end = glm::floor(next + high - epsilon);
-    for (int y = begin.y; y <= end.y; ++y) {
+    const auto playerMin = next + low + epsilon;
+    const auto playerMax = next + high - epsilon;
+    const glm::ivec3 begin = glm::floor(playerMin);
+    const glm::ivec3 end = glm::floor(playerMax);
+    const auto clip = [&](glm::vec3 min, glm::vec3 max) {
+        if (delta > 0) next[axis] = std::min(next[axis], min[axis] - high[axis]);
+        else next[axis] = std::max(next[axis], max[axis] - low[axis]);
+    };
+    // A trunk can overlap the player while its anchor is below the player's feet.
+    for (int y = begin.y - treeTrunkCells + 1; y <= end.y; ++y) {
         for (int z = begin.z; z <= end.z; ++z) {
             for (int x = begin.x; x <= end.x; ++x) {
                 const glm::ivec3 cell{x,y,z};
-                if (!solid(world.get(cell))) continue;
-                if (delta > 0) next[axis] = std::min(next[axis], cell[axis] - high[axis]);
-                else next[axis] = std::max(next[axis], cell[axis] + 1.f - low[axis]);
+                const auto block = world.get(cell);
+                if (y >= begin.y && solid(block)) {
+                    clip(glm::vec3(cell),glm::vec3(cell)+1.f);
+                } else if (canopy(block)) {
+                    const auto size = treeTrunkSize(cell);
+                    const auto min = glm::vec3(cell) + glm::vec3(1.f-size.x,0,1.f-size.z)*.5f;
+                    const auto max = min+size;
+                    if (glm::all(glm::lessThanEqual(playerMin,max)) &&
+                        glm::all(glm::greaterThanEqual(playerMax,min)))
+                        clip(min,max);
+                }
             }
         }
     }
@@ -37,8 +53,8 @@ bool move(const World& world, glm::vec3& feet, int axis, float delta) {
 
 void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     constexpr auto dt = static_cast<float>(physicsStep);
-    const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.5f,0)))) == Block::water;
-    const float speed = swimming ? 2.5f : sprint ? 7.f : 4.8f;
+    const bool swimming = world.get(glm::ivec3(glm::floor(feet + glm::vec3(0,.25f,0)))) == Block::water;
+    const float speed = swimming ? 1.25f : sprint ? 3.5f : 2.4f;
     const float amount = glm::dot(wish, wish);
     if (amount > 1.f) wish /= std::sqrt(amount);
     velocity.x = wish.x * speed;
@@ -54,9 +70,9 @@ void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
             }
         }
     }
-    if (grounded && jump) velocity.y = 7.6f;
-    if (swimming) velocity.y = jump ? 3.f : std::max(velocity.y - 7.f * dt, -2.f);
-    else velocity.y = std::max(velocity.y - 22.f * dt, -30.f);
+    if (grounded && jump) velocity.y = 4.8f;
+    if (swimming) velocity.y = jump ? 2.5f : std::max(velocity.y - 3.5f * dt, -1.f);
+    else velocity.y = std::max(velocity.y - 11.f * dt, -15.f);
     const bool verticalContact = move(world, feet, 1, velocity.y * dt);
     grounded = verticalContact && velocity.y < 0;
     if (verticalContact) velocity.y = 0;
@@ -65,7 +81,7 @@ void Player::step(const World& world, glm::vec3 wish, bool sprint, bool jump) {
     if (moving) {
         const float target = std::atan2(-wish.x, -wish.z);
         heading += std::remainder(target - heading, 6.2831853f) * 14.f * dt;
-        stride += speed * 2.5f * dt;
+        stride += speed * 5.f * dt;
     }
 }
 
