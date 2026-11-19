@@ -11,6 +11,7 @@ export function multiplayer(canvas) {
   const indicator = document.querySelector("#room-indicator");
   let room = new URL(location.href).searchParams.get("room") ?? "";
   let socket, peer, localPose, retryTimer, sendTimer;
+  let hasJoined = false, fullSince;
   let ready = false, joined = false, retries = 0, peerSeenAt = 0;
 
   function setStatus(message) {
@@ -48,7 +49,8 @@ export function multiplayer(canvas) {
       if (socket !== connection) return;
       const message = JSON.parse(data);
       if (message.type === "joined") {
-        joined = true;
+        joined = hasJoined = true;
+        fullSince = undefined;
         retries = 0;
         setStatus("Waiting for your friend");
         clearInterval(sendTimer);
@@ -73,8 +75,13 @@ export function multiplayer(canvas) {
       clearInterval(sendTimer);
       clearPeer();
       if (code === 4003) {
-        setStatus("Room is full. Join again or create a room.");
-        return;
+        // A stopped relay can leave seats leased for 20 seconds.
+        const now = performance.now();
+        fullSince ??= now;
+        if (!hasJoined || now - fullSince >= 25_000) {
+          setStatus("Room is full. Join again or create a room.");
+          return;
+        }
       }
       setStatus("Relay disconnected. Retrying…");
       retryTimer = setTimeout(connect, Math.min(1000 * 2 ** retries++, 15000));
@@ -89,7 +96,8 @@ export function multiplayer(canvas) {
     socket = undefined;
     previous?.close();
     clearPeer();
-    joined = false;
+    joined = hasJoined = false;
+    fullSince = undefined;
     retries = 0;
     const url = new URL(location.href);
     if (room) url.searchParams.set("room", room);
