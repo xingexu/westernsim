@@ -19,11 +19,16 @@ enum class Block : std::uint8_t {
     air, grass, earth, shale, sand, cedar, needles, birch, leaves,
     limestone, brick, planks, water, lantern, sandstone, slate, glass,
     pavement, concrete, copper, goldLeaves, redLeaves, stainedGlass,
-    lancet, clock, iron, flagRed, flagWhite, flowers, count
+    lancet, clock, iron, flagRed, flagWhite, flowers,
+    lampPost, bench, planter, canopyGreen, canopyGold, canopyCopper,
+    count
 };
 
+constexpr bool scenery(Block block) { return block >= Block::lampPost && block < Block::count; }
+constexpr bool canopy(Block block) { return block >= Block::canopyGreen && block <= Block::canopyCopper; }
+
 constexpr bool solid(Block block) {
-    return block != Block::air && block != Block::water;
+    return block != Block::air && block != Block::water && !scenery(block);
 }
 
 struct Chunk {

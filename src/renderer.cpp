@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "avatar.hpp"
 #include "campus.hpp"
 #include "shaders.hpp"
 
@@ -22,16 +23,13 @@ const glm::vec3 sun = glm::normalize(glm::vec3(.53f,.69f,.49f));
 constexpr glm::vec3 rgb(unsigned hex) {
     return {((hex >> 16) & 255) / 255.f, ((hex >> 8) & 255) / 255.f, (hex & 255) / 255.f};
 }
-const std::array<glm::vec3,47> colors{
-    rgb(0x000000), rgb(0x879c50), rgb(0x927050), rgb(0x74838b), rgb(0xd9c392),
-    rgb(0x856045), rgb(0x496e47), rgb(0xddcbae), rgb(0xa5b655), rgb(0xe5d6b2),
-    rgb(0xad6252), rgb(0xab8055), rgb(0x45998e), rgb(0xffd080),
-    rgb(0xbca985), rgb(0x45565e), rgb(0x3e525f), rgb(0x777c7e), rgb(0xb2b1a3),
-    rgb(0x4b8982), rgb(0xdca044), rgb(0xc36940), rgb(0x665584),
-    rgb(0x82709a), rgb(0x61506b), rgb(0x414659), rgb(0xb83e4c), rgb(0xdcd8bf), rgb(0x65753e),
-    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
-    rgb(0xf3bd58), rgb(0x64558c), rgb(0x33354e), rgb(0xb97958), rgb(0x57433e),
-    rgb(0xc56b4b), rgb(0xf3e9cb)
+const std::array<glm::vec3,static_cast<std::size_t>(Block::lampPost)> colors{
+    rgb(0x000000), rgb(0x83ac57), rgb(0x927256), rgb(0x7d95a3), rgb(0xe1c698),
+    rgb(0x856045), rgb(0x4d824c), rgb(0xe8dac2), rgb(0x82a94c), rgb(0xe9dbbd),
+    rgb(0xbe7663), rgb(0xbd8c65), rgb(0x45998e), rgb(0xffd080),
+    rgb(0xc7b69c), rgb(0x506578), rgb(0x4d6273), rgb(0x909595), rgb(0xc3c0b4),
+    rgb(0x4e9485), rgb(0xe5ab44), rgb(0xd47d49), rgb(0x665584),
+    rgb(0x82709a), rgb(0x61506b), rgb(0x414659), rgb(0xb83e4c), rgb(0xdcd8bf), rgb(0x65753e)
 };
 
 GLuint compile(GLenum type, const char* source) {
@@ -68,7 +66,7 @@ void vector(GLint location, glm::vec3 v) { glUniform3fv(location, 1, glm::value_
 struct GpuMesh {
     GLuint vao = 0, vertices = 0, indices = 0;
     GLsizei count = 0;
-    glm::vec3 origin{};
+    glm::vec3 low{}, high{};
 
     GpuMesh() = default;
     GpuMesh(const GpuMesh&) = delete;
@@ -79,7 +77,8 @@ struct GpuMesh {
         std::swap(vertices, other.vertices);
         std::swap(indices, other.indices);
         std::swap(count, other.count);
-        std::swap(origin, other.origin);
+        std::swap(low, other.low);
+        std::swap(high, other.high);
         return *this;
     }
     ~GpuMesh() {
@@ -87,9 +86,10 @@ struct GpuMesh {
         glDeleteBuffers(1, &vertices);
         glDeleteVertexArrays(1, &vao);
     }
-    void upload(const Mesh& mesh) {
-        count = static_cast<GLsizei>(mesh.indices.size());
-        if (count == 0) return;
+    template<typename V>
+    bool uploadBuffers(const std::vector<V>& data, const std::vector<std::uint32_t>& elements) {
+        count = static_cast<GLsizei>(elements.size());
+        if (count == 0) return false;
         if (!vao) {
             glGenVertexArrays(1, &vao);
             glGenBuffers(1, &vertices);
@@ -97,10 +97,19 @@ struct GpuMesh {
         }
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vertices);
-        glBufferData(GL_ARRAY_BUFFER, mesh.vertices.size() * sizeof(Vertex), mesh.vertices.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(V), data.data(), GL_STATIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size() * sizeof(std::uint32_t),
-                     mesh.indices.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, elements.size() * sizeof(std::uint32_t),
+                     elements.data(), GL_STATIC_DRAW);
+        return true;
+    }
+    void upload(const Mesh& mesh) {
+        if (!uploadBuffers(mesh.vertices,mesh.indices)) return;
+        low = high = mesh.vertices.front().position;
+        for (const auto& vertex : mesh.vertices) {
+            low = glm::min(low,vertex.position);
+            high = glm::max(high,vertex.position);
+        }
         for (GLuint slot = 0; slot < 3; ++slot) glEnableVertexAttribArray(slot);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                               reinterpret_cast<void*>(offsetof(Vertex, position)));
@@ -108,6 +117,15 @@ struct GpuMesh {
                               reinterpret_cast<void*>(offsetof(Vertex, normal)));
         glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                               reinterpret_cast<void*>(offsetof(Vertex, material)));
+    }
+    void upload(const AvatarMesh& mesh) {
+        if (!uploadBuffers(mesh.vertices,mesh.indices)) return;
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(AvatarVertex),
+                              reinterpret_cast<void*>(offsetof(AvatarVertex,position)));
+        glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(AvatarVertex),
+                              reinterpret_cast<void*>(offsetof(AvatarVertex,color)));
     }
     void draw() const {
         glBindVertexArray(vao);
@@ -136,41 +154,6 @@ struct Frustum {
         return true;
     }
 };
-
-struct Piece {
-    glm::mat4 model;
-    float material;
-};
-
-std::array<Piece,15> avatar(const Player& player) {
-    const glm::mat4 identity{1.f};
-    const float swing = std::sin(player.stride) * player.gait * .55f;
-    const auto root = glm::rotate(glm::translate(identity, player.feet), player.heading, {0,1,0});
-    auto box = [&](float mat, glm::vec3 center, glm::vec3 size) {
-        return Piece{glm::scale(glm::translate(root, center - size * .5f), size), mat};
-    };
-    auto limb = [&](float mat, glm::vec3 pivot, glm::vec3 size, float angle, float drop) {
-        auto model = glm::rotate(glm::translate(root, pivot), angle, {1,0,0});
-        return Piece{glm::scale(glm::translate(model, {-size.x/2, -drop, -size.z/2}), size), mat};
-    };
-    return {{
-        box(41, {0,.84f,0}, {.49f,.54f,.30f}),
-        box(43, {0,1.29f,0}, {.35f,.36f,.33f}),
-        box(44, {0,1.34f,.141f}, {.35f,.27f,.063f}),
-        box(40, {0,1.48f,-.025f}, {.40f,.115f,.42f}),
-        box(40, {0,1.412f,-.061f}, {.46f,.044f,.53f}),
-        box(45, {0,1.106f,.006f}, {.39f,.08f,.35f}),
-        box(44, {0,.87f,.188f}, {.37f,.39f,.154f}),
-        box(45, {0,.944f,.277f}, {.33f,.145f,.039f}),
-        box(46, {0,.931f,.302f}, {.082f,.081f,.014f}),
-        limb(41, {-.33f,1.055f,0}, {.16f,.39f,.18f}, -swing, .37f),
-        limb(41, { .33f,1.055f,0}, {.16f,.39f,.18f}, swing, .37f),
-        limb(43, {-.33f,1.055f,0}, {.146f,.11f,.165f}, -swing, .456f),
-        limb(43, { .33f,1.055f,0}, {.146f,.11f,.165f}, swing, .456f),
-        limb(42, {-.13f,.57f,-.025f}, {.193f,.57f,.235f}, swing, .57f),
-        limb(42, { .13f,.57f,-.025f}, {.193f,.57f,.235f}, -swing, .57f)
-    }};
-}
 
 } // namespace
 
@@ -209,25 +192,26 @@ struct Renderer::Data {
     Program sky{shaders::skyVertex, shaders::skyFragment};
     Program depth{shaders::depthVertex, shaders::depthFragment};
     Program line{shaders::lineVertex, shaders::lineFragment};
+    Program avatar{shaders::avatarVertex, shaders::avatarFragment};
     const GLint worldView = world.uniform("viewProjection"), worldModel = world.uniform("model");
     const GLint worldLight = world.uniform("lightMatrix"), worldEye = world.uniform("eye");
-    const GLint worldTile = world.uniform("materialOverride"), worldTime = world.uniform("time");
+    const GLint worldTime = world.uniform("time");
     const GLint skyInverse = sky.uniform("inverseViewProjection"), skyEye = sky.uniform("eye");
     const GLint skyTime = sky.uniform("time"), depthModel = depth.uniform("model");
     const GLint depthLight = depth.uniform("lightMatrix"), lineMatrix = line.uniform("transform");
+    const GLint avatarTransform = avatar.uniform("transform");
     GLuint emptyVao = 0, lineVao = 0, lineBuffer = 0;
     GLuint shadowBuffer = 0, shadowMap = 0;
     std::vector<GpuMesh> chunks;
-    GpuMesh cube;
+    std::array<GpuMesh,avatarPartCount> avatarMeshes;
     Meshing mode = Meshing::greedy;
     glm::mat4 lightMatrix{1.f};
     std::vector<std::size_t> shadowChunks;
     RenderStats totals;
 
     Data() {
-        World sample(chunkSize);
-        sample.set({0,0,0}, Block::limestone);
-        cube.upload(meshChunk(sample, sample.chunks().front()));
+        for (std::size_t i = 0; i < avatarMeshes.size(); ++i)
+            avatarMeshes[i].upload(westernAvatarMesh(static_cast<AvatarPart>(i)));
         world.use();
         vector(world.uniform("lightDirection"), sun);
         vector(world.uniform("clockCenter"), campusClockCenter());
@@ -255,8 +239,10 @@ struct Renderer::Data {
         glBindTexture(GL_TEXTURE_2D, shadowMap);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadowSize, shadowSize, 0,
                      GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
         constexpr float border[]{1,1,1,1};
@@ -288,7 +274,7 @@ struct Renderer::Data {
             if (!chunk.count) continue;
             ++totals.totalChunks;
             totals.totalTriangles += chunk.count / 3;
-            if (light.intersects(chunk.origin, chunk.origin + glm::vec3(chunkSize)))
+            if (light.intersects(chunk.low,chunk.high))
                 shadowChunks.push_back(i);
         }
     }
@@ -307,7 +293,6 @@ void Renderer::rebuild(const World& world, Meshing mode) {
     d.chunks.resize(world.chunks().size());
     for (std::size_t i = 0; i < d.chunks.size(); ++i) {
         const auto& chunk = world.chunks()[i];
-        d.chunks[i].origin = chunk.origin;
         d.chunks[i].upload(meshChunk(world, chunk, mode));
     }
     d.recount();
@@ -321,11 +306,11 @@ void Renderer::update(const World& world, glm::ivec3 edited) {
 }
 
 RenderStats Renderer::draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                           int width, int height, float time, unsigned target) {
+                           int width, int height, float time) {
     auto& d = *data_;
     const glm::mat4 identity{1.f};
     const auto viewProjection = camera.projection * camera.view;
-    const auto pieces = avatar(player);
+    const auto pose = westernAvatarPose(player);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -336,12 +321,12 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
     matrix(d.depthLight, d.lightMatrix);
     matrix(d.depthModel, identity);
     for (const auto i : d.shadowChunks) d.chunks[i].draw();
-    for (const auto& piece : pieces) {
-        matrix(d.depthModel, piece.model);
-        d.cube.draw();
+    for (std::size_t i = 0; i < pose.size(); ++i) {
+        matrix(d.depthModel, pose[i]);
+        d.avatarMeshes[i].draw();
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER,target);
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
     glViewport(0, 0, width, height);
     glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
@@ -363,21 +348,20 @@ RenderStats Renderer::draw(const Camera& camera, const Player& player, const std
     matrix(d.worldModel, identity);
     vector(d.worldEye, camera.eye);
     glUniform1f(d.worldTime, time);
-    glUniform1f(d.worldTile, -1.f);
 
     const Frustum frustum{viewProjection};
     RenderStats stats = d.totals;
     for (const auto& chunk : d.chunks) {
-        if (!chunk.count || !frustum.intersects(chunk.origin, chunk.origin + glm::vec3(chunkSize)))
+        if (!chunk.count || !frustum.intersects(chunk.low,chunk.high))
             continue;
         chunk.draw();
         ++stats.chunks;
         stats.triangles += chunk.count / 3;
     }
-    for (const auto& piece : pieces) {
-        matrix(d.worldModel, piece.model);
-        glUniform1f(d.worldTile, piece.material);
-        d.cube.draw();
+    d.avatar.use();
+    for (std::size_t i = 0; i < pose.size(); ++i) {
+        matrix(d.avatarTransform, viewProjection*pose[i]);
+        d.avatarMeshes[i].draw();
     }
     if (selected) {
         d.line.use();
