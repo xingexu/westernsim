@@ -17,12 +17,12 @@ namespace {
 
 using Color = glm::vec4;
 using Point = glm::vec2;
-constexpr Color ivory{.98f,.95f,.86f,1.f};
-constexpr Color muted{.72f,.79f,.76f,1.f};
-constexpr Color accent{.99f,.80f,.45f,1.f};
-constexpr Color panel{.093f,.082f,.143f,.92f};
-constexpr Color border{.81f,.78f,.93f,.25f};
-constexpr Color lilac{.80f,.72f,.97f,1.f};
+constexpr Color ivory{.99f,.98f,1.f,1.f};
+constexpr Color muted{.76f,.78f,.85f,1.f};
+constexpr Color accent{.99f,.81f,.42f,1.f};
+constexpr Color panel{.10f,.085f,.158f,.89f};
+constexpr Color border{.87f,.82f,.99f,.29f};
+constexpr Color lilac{.84f,.76f,1.f,1.f};
 
 constexpr char vertex[] = R"GLSL(#version 330 core
 layout(location=0) in vec2 screen;
@@ -74,12 +74,18 @@ public:
     }
 
     void rounded(float x, float y, float w, float h, float r, Color color) {
-        const float step = std::floor(r/2.f);
-        rect(x,y+r,w,h-2*r,color);
-        rect(x+step,y+step,w-step*2,r-step,color);
-        rect(x+step,y+h-r,w-step*2,r-step,color);
-        rect(x+r,y,w-r*2,step,color);
-        rect(x+r,y+h-step,w-r*2,step,color);
+        rect(x+r,y,w-2*r,h,color);
+        rect(x,y+r,r,h-2*r,color);
+        rect(x+w-r,y+r,r,h-2*r,color);
+        constexpr float quarter = 1.570796327f;
+        const Point centers[]{{x+w-r,y+h-r},{x+r,y+h-r},{x+r,y+r},{x+w-r,y+r}};
+        for (int k = 0; k < 4; ++k) {
+            const auto c = centers[k];
+            for (int i = 0; i < 8; ++i) {
+                const float a = (k+i/8.f)*quarter, b = (k+(i+1)/8.f)*quarter;
+                triangle(c,c+r*Point(std::cos(a),std::sin(a)),c+r*Point(std::cos(b),std::sin(b)),color);
+            }
+        }
     }
 
     void card(float x, float y, float w, float h, float r, Color fill = panel, Color edge = border) {
@@ -141,8 +147,8 @@ private:
 
 void branding(Canvas& canvas, float w) {
     canvas.card(28,25,197,62,12);
-    canvas.rounded(39,36,39,39,8,{.24f,.19f,.35f,1});
-    canvas.cube(58.5f,53.5f,.82f,{.96f,.72f,.35f});
+    canvas.rounded(39,36,39,39,10,{.37f,.23f,.65f,1});
+    canvas.centered(58.5f,64,"W",24,ivory,true);
     canvas.text(88,54,"Western Sim",20,ivory,true);
     canvas.text(89,72,"WESTERN UNIVERSITY",9.5f,lilac,true);
 
@@ -253,10 +259,9 @@ void campusMap(Canvas& canvas, float w, float h, const HudState& state) {
 void toolbar(Canvas& canvas, float w, float h, const HudState& state) {
     constexpr float gap = 7, tile = 54, width = tile * 8 + gap * 7 + 18;
     const float x = (w - width) / 2, y = h - 93;
-    const float labelWidth = Canvas::width(buildingPalette[state.slot].label, 12, true) + 75;
+    const float labelWidth = Canvas::width(buildingPalette[state.slot].label, 13, true) + 28;
     canvas.card((w-labelWidth)/2,y-36,labelWidth,27,7);
-    canvas.text((w-labelWidth)/2+11,y-18,buildingPalette[state.slot].label,12,ivory,true);
-    canvas.text((w+labelWidth)/2-55,y-18,"MATERIAL",9,muted,true);
+    canvas.centered(w/2,y-18,buildingPalette[state.slot].label,13,ivory,true);
     canvas.card(x,y,width,68,12);
     for (std::size_t i = 0; i < buildingPalette.size(); ++i) {
         const float tx = x + 9 + (tile + gap) * i;
@@ -279,8 +284,11 @@ MapColor mapColor(Block block, int elevation, int x, int z) {
         case Block::sand: return MapColor(202,190,146) + grain;
         case Block::leaves:
         case Block::needles: return MapColor(105,132,79) + grain;
-        case Block::goldLeaves: return MapColor(194,153,73) + grain;
-        case Block::redLeaves: return MapColor(169,103,70) + grain;
+        case Block::canopyGreen: return MapColor(102,142,74) + grain;
+        case Block::goldLeaves:
+        case Block::canopyGold: return MapColor(194,153,73) + grain;
+        case Block::redLeaves:
+        case Block::canopyCopper: return MapColor(169,103,70) + grain;
         case Block::pavement: return MapColor(154,150,145) + grain;
         case Block::limestone:
         case Block::concrete: return MapColor(224,213,181) + grain;
@@ -320,8 +328,8 @@ struct Hud::Data {
         glGenTextures(1,&texture);
         glBindTexture(GL_TEXTURE_2D,texture);
         glTexImage2D(GL_TEXTURE_2D,0,GL_R8,font::width,font::height,0,GL_RED,GL_UNSIGNED_BYTE,pixels.data());
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
         glUseProgram(program);
@@ -344,13 +352,35 @@ Hud::~Hud() = default;
 
 void Hud::setCampusMap(const World& world) {
     const int edge = world.edge();
-    std::vector<std::uint8_t> pixels;
-    pixels.reserve(edge*edge*4);
+    struct Top { int y; Block block; };
+    std::vector<Top> tops(static_cast<std::size_t>(edge*edge));
+    std::vector<glm::ivec3> crowns;
     for (int z = 0; z < edge; ++z) {
         for (int x = 0; x < edge; ++x) {
             int y = worldHeight-1;
             while (y > 0 && world.get({x,y,z}) == Block::air) --y;
-            const auto color = mapColor(world.get({x,y,z}),y,x,z);
+            const auto block = world.get({x,y,z});
+            tops[z*edge+x] = {y,block};
+            if (canopy(block)) crowns.push_back({x,y,z});
+        }
+    }
+    for (const auto& crown : crowns) {
+        const auto block = world.get(crown);
+        for (int dz = -2; dz <= 2; ++dz) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                const int x = crown.x+dx, z = crown.z+dz;
+                if (x < 0 || z < 0 || x >= edge || z >= edge || dx*dx+dz*dz > 5) continue;
+                auto& top = tops[z*edge+x];
+                if (top.y < crown.y) top = {crown.y,block};
+            }
+        }
+    }
+    std::vector<std::uint8_t> pixels;
+    pixels.reserve(edge*edge*4);
+    for (int z = 0; z < edge; ++z) {
+        for (int x = 0; x < edge; ++x) {
+            const auto top = tops[z*edge+x];
+            const auto color = mapColor(top.block,top.y,x,z);
             pixels.insert(pixels.end(),{static_cast<std::uint8_t>(color.r),
                                         static_cast<std::uint8_t>(color.g),
                                         static_cast<std::uint8_t>(color.b),255});

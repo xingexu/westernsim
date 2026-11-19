@@ -54,6 +54,14 @@ void meshing() {
     shoreline.set({4,4,4}, Block::water);
     shoreline.set({5,4,4}, Block::shale);
     check(meshChunk(shoreline, shoreline.chunks().front()).triangles() == 22, "water interfaces");
+
+    World fixture(32);
+    fixture.set({15,0,10},Block::limestone);
+    fixture.set({15,1,10},Block::bench);
+    const auto detail = meshChunk(fixture,fixture.chunks().front());
+    check(detail.triangles() == 156, "a decorative anchor emits bench geometry and keeps the floor top");
+    const auto hit = raycast(fixture,{15.5f,2.5f,10.5f},{0,-1,0},3.f);
+    check(hit && hit->block.y == 0 && !solid(Block::bench), "fixtures stay out of voxel picking and collision");
 }
 
 void movementAndEditing() {
@@ -110,6 +118,8 @@ void campus() {
     check(world.get({60,22,89}) == Block::stainedGlass, "Conron Hall windows");
     const auto plaza = raycast(world,{49.5f,63.f,71.5f},{0,-1,0},63.f);
     check(plaza && world.get(plaza->block) == Block::concrete, "Concrete Beach plaza");
+    const auto residence = raycast(world,{6.5f,63.f,170.5f},{0,-1,0},63.f);
+    check(residence && world.get(residence->block) == Block::slate, "Ontario Hall has a flat residence wing");
 }
 
 } // namespace

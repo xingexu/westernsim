@@ -1,7 +1,6 @@
 #include "hud.hpp"
 #include "renderer.hpp"
 #include "campus.hpp"
-#include "pixel_frame.hpp"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -28,7 +27,7 @@ constexpr float editReach = 8.f;
 constexpr int benchmarkWarmup = 30, benchmarkFrames = 120;
 
 struct Options {
-    bool benchmark = false, screenshotMap = false;
+    bool benchmark = false, screenshotMap = false, screenshotAvatar = false;
     std::filesystem::path screenshot, save = "world.qlw";
 };
 
@@ -48,7 +47,7 @@ struct Window {
         glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT,GLFW_TRUE);
         glfwWindowHint(GLFW_VISIBLE,offscreen ? GLFW_FALSE : GLFW_TRUE);
-        glfwWindowHint(GLFW_SAMPLES,0);
+        glfwWindowHint(GLFW_SAMPLES,4);
         handle = glfwCreateWindow(width,height,"Western Sim",nullptr,nullptr);
         if (!handle) throw std::runtime_error("Could not create an OpenGL 3.3 window");
     }
@@ -56,20 +55,20 @@ struct Window {
 };
 
 struct Orbit {
-    float yaw = -.31f, pitch = .18f;
+    float yaw = -.27f, pitch = .17f;
 
     glm::vec3 horizontal() const { return {std::sin(yaw), 0.f, -std::cos(yaw)}; }
     glm::vec3 right() const { return {std::cos(yaw), 0.f, std::sin(yaw)}; }
 
     Camera view(const World& world, glm::vec3 feet, float aspect) const {
         const auto direction = horizontal() * std::cos(pitch) + glm::vec3(0,std::sin(pitch),0);
-        const auto focus = feet + glm::vec3(0,2.12f,0) + right() * .43f;
-        float distance = 5.4f;
+        const auto focus = feet + glm::vec3(0,2.16f,0) + right() * .35f;
+        float distance = 6.1f;
         if (const auto obstruction = raycast(world,focus,-direction,distance))
             distance = std::max(.12f, obstruction->distance - .22f);
         const auto eye = focus - direction * distance;
         return {eye,direction,glm::lookAt(eye,eye+direction,{0,1,0}),
-                glm::perspective(69.f * pi / 180.f,aspect,.08f,275.f)};
+                glm::perspective(68.f * pi / 180.f,aspect,.08f,275.f)};
     }
 };
 
@@ -103,23 +102,22 @@ void checkGraphics() {
     if (error != GL_NO_ERROR) throw std::runtime_error("OpenGL error " + std::to_string(error));
 }
 
-RenderStats drawFrame(Renderer& renderer, Hud& hud, PixelFrame& frame, const Camera& camera,
+RenderStats drawFrame(Renderer& renderer, Hud& hud, int width, int height, const Camera& camera,
                       const Player& player, const std::optional<Hit>& hit, float time, HudState& state) {
-    state.stats = renderer.draw(camera,player,hit,frame.sceneWidth(),frame.sceneHeight(),time,frame.sceneTarget());
-    frame.startHud();
-    hud.draw(frame.hudWidth(),frame.hudHeight(),state);
+    state.stats = renderer.draw(camera,player,hit,width,height,time);
+    hud.draw(width,height,state);
     return state.stats;
 }
 
 void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& world, int width, int height) {
     using Clock = std::chrono::steady_clock;
-    PixelFrame pixels;
-    pixels.resize(width,height);
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES,&samples);
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << '\n'
               << "Driver: " << glGetString(GL_VERSION) << '\n'
               << "World: " << world.edge() << " x " << worldHeight << " x " << world.edge()
-              << " | " << width << " x " << height << " output, " << pixels.sceneWidth()
-              << " x " << pixels.sceneHeight() << " scene | " << benchmarkWarmup << " warm-up + "
+              << " | " << width << " x " << height << " native, " << samples << " MSAA samples | "
+              << benchmarkWarmup << " warm-up + "
               << benchmarkFrames << " measured frames per mode | VSync off\n";
     Player player;
     player.feet = world.spawn();
@@ -141,7 +139,7 @@ void benchmark(GLFWwindow* window, Renderer& renderer, Hud& hud, const World& wo
             HudState state;
             state.heading = orbit.yaw * 180.f / pi;
             state.editing = true;
-            stats = drawFrame(renderer,hud,pixels,camera,player,{},t * 3.f,state);
+            stats = drawFrame(renderer,hud,width,height,camera,player,{},t * 3.f,state);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (frame >= 0) {
@@ -235,8 +233,7 @@ public:
                 fpsTime_ = 0;
                 fpsFrames_ = 0;
             }
-            pixels_.resize(width,height);
-            drawFrame(renderer_,hud_,pixels_,camera,player_,hit,float(now),state_);
+            drawFrame(renderer_,hud_,width,height,camera,player_,hit,float(now),state_);
             glfwSwapBuffers(window_);
         }
     }
@@ -245,7 +242,6 @@ private:
     GLFWwindow* window_;
     Renderer& renderer_;
     Hud& hud_;
-    PixelFrame pixels_;
     std::filesystem::path savePath_;
     World world_ = makeCampus();
     Player player_;
@@ -367,7 +363,8 @@ private:
         if (button == GLFW_MOUSE_BUTTON_RIGHT) {
             if (hit.normal == glm::ivec3(0)) return;
             at += hit.normal;
-            if (solid(world_.get(at)) || player_.overlaps(at)) return;
+            const auto current = world_.get(at);
+            if ((current != Block::air && current != Block::water) || player_.overlaps(at)) return;
             block = buildingPalette[state_.slot].block;
         }
         if (world_.set(at,block)) renderer_.update(world_,at);
@@ -379,10 +376,11 @@ Options options(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--benchmark") result.benchmark = true;
-        else if (arg == "--screenshot" && i + 1 < argc) result.screenshot = argv[++i];
-        else if (arg == "--screenshot-map" && i + 1 < argc) {
+        else if ((arg == "--screenshot" || arg == "--screenshot-map" || arg == "--screenshot-avatar")
+                 && i + 1 < argc && result.screenshot.empty()) {
             result.screenshot = argv[++i];
-            result.screenshotMap = true;
+            result.screenshotMap = arg == "--screenshot-map";
+            result.screenshotAvatar = arg == "--screenshot-avatar";
         }
         else if (arg == "--save" && i + 1 < argc) result.save = argv[++i];
         else throw std::runtime_error("Invalid argument: " + arg + " (see --help)");
@@ -397,7 +395,8 @@ Options options(int argc, char** argv) {
 int main(int argc,char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
-            std::cout << "Western Sim [--save FILE] [--benchmark | --screenshot FILE.ppm | --screenshot-map FILE.ppm]\n";
+            std::cout << "Western Sim [--save FILE] [--benchmark | --screenshot FILE.ppm | "
+                         "--screenshot-map FILE.ppm | --screenshot-avatar FILE.ppm]\n";
             return 0;
         }
         const auto args = options(argc,argv);
@@ -427,16 +426,23 @@ int main(int argc,char** argv) {
                 player.feet = world.spawn();
                 Orbit orbit;
                 player.heading = -orbit.yaw;
-                const auto camera = orbit.view(world,player.feet,float(width)/height);
-                PixelFrame pixels;
-                pixels.resize(width,height);
-                HudState state;
-                state.editing = true;
-                state.map = args.screenshotMap;
-                state.position = {player.feet.x,player.feet.z};
-                state.heading = orbit.yaw * 180.f / pi;
-                if (state.map) hud.setCampusMap(world);
-                drawFrame(renderer,hud,pixels,camera,player,{},1.2f,state);
+                auto camera = orbit.view(world,player.feet,float(width)/height);
+                if (args.screenshotAvatar) {
+                    player.heading = pi - orbit.yaw + .21f;
+                    const auto target = player.feet + glm::vec3(0,.88f,0);
+                    const auto eye = target - orbit.horizontal()*2.75f + glm::vec3(0,.23f,0);
+                    camera = {eye,glm::normalize(target-eye),glm::lookAt(eye,target,{0,1,0}),
+                              glm::perspective(44.f*pi/180.f,float(width)/height,.08f,275.f)};
+                    renderer.draw(camera,player,{},width,height,1.2f);
+                } else {
+                    HudState state;
+                    state.editing = true;
+                    state.map = args.screenshotMap;
+                    state.position = {player.feet.x,player.feet.z};
+                    state.heading = orbit.yaw * 180.f / pi;
+                    if (state.map) hud.setCampusMap(world);
+                    drawFrame(renderer,hud,width,height,camera,player,{},1.2f,state);
+                }
                 capture(args.screenshot,width,height);
                 checkGraphics();
             }

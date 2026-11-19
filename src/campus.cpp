@@ -188,6 +188,17 @@ void universityCollege(World& world, const Landmark& l) {
     box(world,72,y,92,80,y,94,Block::limestone);
     box(world,73,y-1,95,79,y-1,95,Block::limestone);
     box(world,74,y-2,96,78,y-2,96,Block::limestone);
+    // Recessed stone portal, corbels and a glazed transom.
+    for (const int x : {73,79}) {
+        box(world,x,y+1,93,x,y+6,94,Block::sandstone);
+        world.set({x,y+5,95},Block::limestone);
+    }
+    box(world,74,y+5,94,78,y+5,94,Block::limestone);
+    box(world,75,y+6,94,77,y+6,94,Block::stainedGlass);
+    for (int x = l.low.x+3; x < l.high.x-1; x += 4) {
+        if (x >= 70 && x <= 82) continue;
+        world.set({x,y+13,front+1},Block::limestone);
+    }
 }
 
 void weldon(World& world, const Landmark& landmark) {
@@ -221,6 +232,9 @@ void weldon(World& world, const Landmark& landmark) {
     const int entry = (x0+x1)/2;
     box(world,entry-2,floor+1,z0,entry+2,floor+3,z0,Block::air);
     box(world,entry-3,floor+4,z0-2,entry+3,floor+4,z0,Block::concrete);
+    for (const int x : {entry-3,entry+3})
+        box(world,x,floor+1,z0-2,x,floor+3,z0-2,Block::sandstone);
+    box(world,entry-4,floor,z0-4,entry+4,floor,z0-1,Block::limestone);
 }
 
 void communityCentre(World& world, const Landmark& landmark) {
@@ -238,9 +252,66 @@ void communityCentre(World& world, const Landmark& landmark) {
         box(world,x,plaza+1,z,x,plaza+3,z,Block::iron);
     box(world,30,plaza+4,70,38,plaza+4,76,Block::slate);
     box(world,31,plaza+5,71,37,plaza+5,75,Block::copper);
-    box(world,42,plaza+1,75,49,plaza+1,75,Block::limestone);
-    box(world,43,plaza+2,75,48,plaza+2,75,Block::planks);
-    box(world,43,plaza+1,72,47,plaza+1,72,Block::flowers);
+    for (const int x : {43,47}) {
+        world.set({x,plaza+1,75},Block::bench);
+        world.set({x,plaza+1,72},Block::planter);
+    }
+}
+
+void ontarioHall(World& world, const Landmark& l) {
+    const int x0 = l.low.x, x1 = l.high.x, z0 = l.low.y, z1 = l.high.y, y0 = base(l);
+    const int entry = (z0+z1)/2;
+    // Low glazed podium. The upper two residence wings sit back above it.
+    for (int z = z0; z <= z1; ++z) {
+        for (int x = x0; x <= x1; ++x) {
+            world.set({x,y0,z},Block::concrete);
+            if (x != x0 && x != x1 && z != z0 && z != z1) continue;
+            const int across = x == x0 || x == x1 ? z-z0 : x-x0;
+            for (int y = 1; y <= 4; ++y) {
+                if (x == x1 && std::abs(z-entry) <= 1 && y <= 3) continue;
+                world.set({x,y0+y,z},y == 4 ? Block::limestone : across%4 == 0 ? Block::brick : Block::glass);
+            }
+        }
+    }
+    box(world,x0,y0+5,z0,x1,y0+5,z1,Block::concrete);
+    box(world,x1,y0+4,entry-2,x1+2,y0+4,entry+2,Block::slate);
+    box(world,x1+1,y0,entry-2,x1+4,y0,entry+2,Block::concrete);
+    for (const bool north : {true,false}) {
+        const int start = north ? z0+1 : entry+2, end = north ? entry-2 : z1-1;
+        const int roof = y0+l.height-(north ? 2 : 0);
+        for (int z = start; z <= end; ++z) {
+            for (int x = x0+1; x <= x1-1; ++x) {
+                if (x != x0+1 && x != x1-1 && z != start && z != end) continue;
+                const int across = (x == x0+1 || x == x1-1) ? z-start : x-x0-1;
+                for (int y = y0+6; y < roof; ++y) {
+                    const bool window = y%3 != 0 && across%4 >= 1 && across%4 <= 2;
+                    world.set({x,y,z},window ? Block::glass : across%4 == 3 ? Block::sandstone : Block::brick);
+                }
+            }
+        }
+        box(world,x0+1,roof,start,x1-1,roof,end,Block::limestone);
+        box(world,x0+2,roof+1,start+1,x1-2,roof+1,end-1,Block::slate);
+    }
+    box(world,x0+2,y0+1,entry-3,x0+4,y0+1,entry-3,Block::planks);
+    box(world,x0+2,y0+1,entry+3,x0+4,y0+1,entry+3,Block::slate);
+    world.set({x0+2,y0+1,entry},Block::planter);
+    world.set({x1+2,y0+1,entry+2},Block::planter);
+}
+
+void mcintoshGallery(World& world, const Landmark& l) {
+    wing(world,l);
+    const int y = base(l), z = l.high.y, x = (l.low.x+l.high.x)/2;
+    // McIntosh's red doors and the pergola on the approach.
+    for (const int side : {x-1,x+1})
+        box(world,side,y+1,z,side,y+3,z,Block::flagRed);
+    box(world,x-2,y+4,z+1,x+2,y+4,z+1,Block::limestone);
+    world.set({x,y+5,z},Block::stainedGlass);
+    for (const int side : {x-3,x+3}) {
+        box(world,side,y+1,z+3,side,y+4,z+3,Block::copper);
+        world.set({side,y+1,z+5},Block::planter);
+    }
+    box(world,x-3,y+5,z+3,x+3,y+5,z+3,Block::copper);
+    box(world,x-2,y,z+1,x+2,y,z+5,Block::limestone);
 }
 
 void buildBridge(World& world) {
@@ -273,15 +344,10 @@ std::uint32_t hash(int x, int z) {
 }
 
 void tree(World& world, int x, int z, int y, int height, Block leaf, bool birch) {
-    for (int layer = height-3; layer <= height+1; ++layer) {
-        const int radius = layer == height+1 ? 1 : layer == height-3 ? 1 : 2;
-        for (int dz = -radius; dz <= radius; ++dz)
-            for (int dx = -radius; dx <= radius; ++dx)
-                if (std::abs(dx)+std::abs(dz) <= radius+1 &&
-                    world.get({x+dx,y+layer,z+dz}) == Block::air)
-                    world.set({x+dx,y+layer,z+dz},leaf);
-    }
     box(world,x,y,z,x,y+height-1,z,birch ? Block::birch : Block::cedar);
+    const auto crown = leaf == Block::goldLeaves ? Block::canopyGold :
+                       leaf == Block::redLeaves ? Block::canopyCopper : Block::canopyGreen;
+    world.set({x,y+height,z},crown);
 }
 
 } // namespace
@@ -323,6 +389,8 @@ World makeCampus() {
             case Building::university: universityCollege(world,landmark); break;
             case Building::library: weldon(world,landmark); break;
             case Building::community: communityCentre(world,landmark); break;
+            case Building::ontario: ontarioHall(world,landmark); break;
+            case Building::gallery: mcintoshGallery(world,landmark); break;
             case Building::plaza: break;
             default: wing(world,landmark); break;
         }
@@ -352,15 +420,19 @@ World makeCampus() {
         const int y = heights[p.y*worldSize+p.x];
         tree(world,p.x,p.y,y+1,5,p.x%2 ? Block::goldLeaves : Block::redLeaves,p.x%2 != 0);
     }
-    for (const glm::ivec2 p : {glm::ivec2(100,113), {85,109}, {72,98}, {80,98}, {125,112},{141,111}}) {
+    for (const glm::ivec2 p : {glm::ivec2(100,113), {85,109}, {72,98}, {80,98}, {125,112},
+                                {141,111}, {170,122}, {56,99}, {53,77}, {106,122}}) {
         const int y = heights[p.y*worldSize+p.x];
-        box(world,p.x,y+1,p.y,p.x,y+2,p.y,Block::iron);
-        world.set({p.x,y+3,p.y},Block::lantern);
+        world.set({p.x,y+1,p.y},Block::lampPost);
     }
-    for (const glm::ivec2 p : {glm::ivec2(72,95), {80,95}, {85,104}, {70,100}, {96,104}}) {
+    for (const glm::ivec2 p : {glm::ivec2(72,95), {81,95}, {85,104}, {70,100}, {96,104},
+                                {103,124}, {110,126}, {104,115}, {33,75}, {55,85}}) {
         const int y = heights[p.y*worldSize+p.x];
-        box(world,p.x,y,p.y,p.x+2,y,p.y+1,Block::limestone);
-        box(world,p.x,y+1,p.y,p.x+2,y+1,p.y,Block::flowers);
+        if (world.get({p.x,y+1,p.y}) == Block::air) world.set({p.x,y+1,p.y},Block::planter);
+    }
+    for (const glm::ivec2 p : {glm::ivec2(101,127), {111,125}, {82,101}, {97,111}, {44,99}, {136,110}}) {
+        const int y = heights[p.y*worldSize+p.x];
+        if (world.get({p.x,y+1,p.y}) == Block::air) world.set({p.x,y+1,p.y},Block::bench);
     }
     return world;
 }

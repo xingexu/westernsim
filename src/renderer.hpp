@@ -27,7 +27,7 @@ public:
     void rebuild(const World& world, Meshing mode);
     void update(const World& world, glm::ivec3 edited);
     RenderStats draw(const Camera& camera, const Player& player, const std::optional<Hit>& selected,
-                     int width, int height, float time, unsigned target);
+                     int width, int height, float time);
 
 private:
     struct Data;

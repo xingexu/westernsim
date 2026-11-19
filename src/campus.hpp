@@ -9,7 +9,7 @@
 namespace wsim {
 
 enum class Building {
-    university, middlesex, library, community, science, gothic, modern, residence, gallery, plaza
+    university, middlesex, library, community, science, gothic, modern, residence, ontario, gallery, plaza
 };
 
 struct Landmark {
@@ -37,7 +37,7 @@ inline constexpr std::array<Landmark, 20> landmarks{{
     {"Huron University College", {2,66}, {12,81}, 9, Building::gothic},
     {"Ivey Business School", {2,114}, {12,133}, 12, Building::modern},
     {"Western Student Recreation Centre", {30,144}, {49,160}, 10, Building::modern},
-    {"Ontario Hall", {1,155}, {11,175}, 14, Building::residence},
+    {"Ontario Hall", {1,155}, {11,175}, 17, Building::ontario},
     {"McIntosh Gallery", {68,51}, {80,61}, 7, Building::gallery},
     {"Concrete Beach", {29,70}, {50,76}, 0, Building::plaza}
 }};

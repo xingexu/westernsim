@@ -1,4 +1,5 @@
 #include "mesher.hpp"
+#include "scenery.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,7 +14,7 @@ struct Face {
 };
 
 bool exposed(Block block, Block neighbor) {
-    return block != Block::air && (neighbor == Block::air ||
+    return block != Block::air && !scenery(block) && (neighbor == Block::air || scenery(neighbor) ||
                                   (solid(block) && neighbor == Block::water));
 }
 
@@ -85,6 +86,13 @@ Mesh meshChunk(const World& world, const Chunk& chunk, Meshing mode) {
             }
         }
     }
+    for (int z = 0; z < side; ++z)
+        for (int y = 0; y < side; ++y)
+            for (int x = 0; x < side; ++x) {
+                const auto at = chunk.origin + glm::ivec3(x,y,z);
+                const auto block = world.get(at);
+                if (scenery(block)) appendScenery(mesh,at,block);
+            }
     return mesh;
 }
 
