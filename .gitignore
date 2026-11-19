@@ -1,0 +1,4 @@
+/build*/
+*.qlw
+*.qlw.tmp*
+*.ppm
